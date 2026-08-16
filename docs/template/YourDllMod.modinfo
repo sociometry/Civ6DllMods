@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Mod id="00000000-0000-0000-0000-000000000001"
+     version="1">
+    <Properties>
+        <Name>Your DLL Mod</Name>
+        <Description>Example DLL mod using Civ6DllLoader shell+runtime election.</Description>
+        <Teaser>DLL mod sample</Teaser>
+        <Authors>You</Authors>
+        <CompatibleVersions>1.2,2.0</CompatibleVersions>
+        <AffectsSavedGames>1</AffectsSavedGames>
+    </Properties>
+    <Dependencies>
+        <Mod id="4873eb62-8ccc-4574-b784-dda455e74e68" title="Expansion: Gathering Storm" />
+    </Dependencies>
+    <FrontEndActions>
+        <UpdateDatabase id="Config">
+            <Properties>
+                <LoadOrder>100</LoadOrder>
+            </Properties>
+            <File>Data/Config.sql</File>
+        </UpdateDatabase>
+    </FrontEndActions>
+    <Files>
+        <File>Binaries/Win64/GameCore_XP2_Shell_FinalRelease.dll</File>
+        <File>Binaries/Win64/Civ6DllLoader.runtime.dll</File>
+        <File>Binaries/Win64/Plugins/YourFeature.dll</File>
+        <File>Data/Config.sql</File>
+    </Files>
+</Mod>

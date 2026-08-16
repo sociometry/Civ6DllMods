@@ -1,0 +1,35 @@
+x64/
+Binaries/
+stub_out/
+
+# Visual Studio user/cache
+.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+
+# Build outputs
+[Dd]ebug/
+[Rr]elease/
+[xX]64/
+[xX]86/
+*.obj
+*.pdb
+*.ilk
+*.lib
+*.exp
+*.idb
+*.ipdb
+*.iobj
+*.log
+*.tlog
+*.recipe
+*.lastbuildstate
+*.vcxproj.FileListAbsolute.txt
+*.Build.CppClean.log
+*.unsuccessfulbuild
+
+__pycache__/
+*.pyc
+*.pyo
