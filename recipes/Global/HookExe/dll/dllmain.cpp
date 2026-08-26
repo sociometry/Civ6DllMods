@@ -19,30 +19,6 @@ using AddResourceFn = __int64(__fastcall*)(int32_t* list);
 static AddResourceFn g_origAddResource = nullptr;
 static std::atomic<uint64_t> g_callCount{ 0 };
 
-static DWORD ExeSizeOfImage(HMODULE exe) {
-    if (!exe) return 0;
-    auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(exe);
-    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return 0;
-    auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(
-        reinterpret_cast<const uint8_t*>(exe) + dos->e_lfanew);
-    if (nt->Signature != IMAGE_NT_SIGNATURE) return 0;
-    return nt->OptionalHeader.SizeOfImage;
-}
-
-static void* ResolveExeRva(uintptr_t rva) {
-    HMODULE exe = GetModuleHandleW(nullptr);
-    const DWORD imageSize = ExeSizeOfImage(exe);
-    if (!exe || imageSize == 0 || rva == 0 || rva >= imageSize) {
-        return nullptr;
-    }
-    auto* p = reinterpret_cast<uint8_t*>(exe) + rva;
-    MEMORY_BASIC_INFORMATION mbi{};
-    if (VirtualQuery(p, &mbi, sizeof(mbi)) == 0) return nullptr;
-    if (mbi.State != MEM_COMMIT) return nullptr;
-    if (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) return nullptr;
-    return p;
-}
-
 static bool LooksLikeCodePrologue(const void* addr) {
     const auto* p = static_cast<const unsigned char*>(addr);
     if (p[0] == 0x00 || p[0] == 0xCC || p[0] == 0x90) return false;
@@ -80,7 +56,8 @@ extern "C" __declspec(dllexport) void OnLoad(HookAPI* api) {
     }
     g_api = api;
 
-    void* target = ResolveExeRva(kRva_AddResource);
+    void* target = api->ResolveByRva(
+        kHookImageExeDx11, kRva_AddResource, 1);
     if (!target) {
         api->Log("HookExe: AddResource RVA 0x%X out of range / unreadable",
             static_cast<unsigned>(kRva_AddResource));

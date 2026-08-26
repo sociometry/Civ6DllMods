@@ -20,7 +20,8 @@ extern "C" __declspec(dllexport) void OnLoad(HookAPI* api) {
     }
     g_api = api;
 
-    void* target = api->RequireFunction(
+    void* target = api->ResolveByName(
+        kHookImageGameCoreXP2,
         "GameCore::City::CityHexspace::ComputePlotsFromRadius");
     if (!target) {
         api->Log("FourRing: ComputePlotsFromRadius not found");

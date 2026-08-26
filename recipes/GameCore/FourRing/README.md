@@ -17,7 +17,7 @@
 ## 构建
 
 ```powershell
-msbuild recipes\FourRing\dll\FourRing.vcxproj /p:Configuration=Release /p:Platform=x64
+msbuild FourRing\dll\FourRing.vcxproj /p:Configuration=Release /p:Platform=x64
 ```
 
 产物：`x64/Release/FourRing.dll`。接到自己的 mod 后看 `Civ6DllLoader_Runtime.log`：

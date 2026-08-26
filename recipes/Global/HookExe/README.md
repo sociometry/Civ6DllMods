@@ -19,17 +19,17 @@ __int64 __fastcall AddResource(volatile int32_t* list);
 | 要点 | 说明 |
 |------|------|
 | 部署目录 | 必须放进 `Plugins\Global\`（阶段 A；exe 已映射） |
-| 取地址 | `GetModuleHandleW(nullptr) + RVA`，**不要**用 `GetFunctionByAddress` |
+| 取地址 | `ResolveByRva(kHookImageExeDx11, RVA, span)` |
 | 生命周期 | exe 域钩跨进退局保留，不必 `RegisterGameCoreTeardown` |
 | 禁区 | 勿抢 Loader 已 hook 的 `LoadDLL` / `UnloadDLL` / `lEnableMod` / `lDisableMod` |
 
 ## 构建
 
 ```powershell
-msbuild recipes\HookExe\dll\HookExe.vcxproj /p:Configuration=Release /p:Platform=x64
+msbuild recipes\Global\HookExe\dll\HookExe.vcxproj /p:Configuration=Release /p:Platform=x64
 ```
 
-产物：`recipes\x64\Release\HookExe.dll` → 接到 mod 的：
+产物：`x64\Release\HookExe.dll` → 接到 mod 的：
 
 ```text
 Binaries/Win64/Plugins/Global/HookExe.dll
@@ -59,6 +59,6 @@ print(HookExe.GetCallCount())
 本例 RVA 相对 **Win64Steam/CivilizationVI.exe**。若 Steam 启动的是 `CivilizationVI_DX12.exe`，同一 RVA 落在错误代码上：
 
 - Loader 会报 `LoadDLL signature mismatch`（阶段 B 全部跳过）
-- HookExe 会报 `prologue check failed`
+- `ResolveByRva(kHookImageExeDx11, ...)` 会因映像 ID 不匹配而返回空
 
 请用非 DX12 启动，或自行针对 DX12 重找 RVA。
