@@ -352,3 +352,15 @@ requirement + 0xA8 = 期望 route index
 ```
 
 因此 `ROUTE_ANCIENT_ROAD` 对应的 `0` 本质上是它在游戏 RouteDefinitions 表中的位置。硬编码原版顺序在当前代码中是定义表扫描未找到时的 fallback，不能作为唯一实现。
+
+## 当前 Loader 兼容性与重载验证
+
+- `dll/HookAPI.h` 与当前 Civ6DllLoader 的 `common/HookAPI.h` 同步；升级时复制整份头文件并重新编译。
+- Debug/Release 均定义 `CIV6_PLUGIN_GAMECORE`，由头文件生成 `Civ6PluginKind` 导出；`OnLoad` 首先检查 ABI。
+- 从仓库根执行上面的构建命令。VS 2026 本机只有 v145 时可追加 `/p:PlatformToolset=v145`；工程默认保留 v143。
+- 将产物放在已启用 Mod 的 `Binaries/Win64/Plugins/GameCore/`，配合本次更新的 Loader 测试 XP2。
+- 同一游戏进程内反复执行“进对局 → 触发功能 → 保存 → 返回主菜单 → 读档 → 再次触发功能”。
+- 检查 `Civ6DllLoader_Loader.log` 中的插件加载、卸载排队、引擎卸载后释放、再次加载，以及本插件的成功日志；编译通过不能代替游戏内验证。
+- `OnUnload` 在 GameCore 仍映射时释放两类 Requirement registry 持有的 native weak references；刷新快照独立持有弱引用，清理后拒绝新增跟踪。
+- factory/vtable 保留给引擎后续 teardown；插件 DLL 由 Loader 在 GameCore 卸载完成后释放。
+- 验证玩家属性跨过 SQL 阈值时 Requirement 会刷新，以及建路/改道路后地块收益变化；读档后再次执行。

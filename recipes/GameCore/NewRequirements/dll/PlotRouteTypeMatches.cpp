@@ -10,7 +10,7 @@
 // REQUIREMENT_PLOT_ROUTE_TYPE_MATCHES
 // Self-contained teaching example: addresses, state, factory, parsing and hooks
 // all live here. Helpers are intentionally duplicated in the other REQ file.
-// Only the registration function below has external linkage.
+// Registration and pre-unload cleanup are exposed to dllmain.cpp.
 // Keep the native PlotTerrain instance vtable and lifetime. Never hook its OnInitialize.
 namespace {
 
@@ -84,6 +84,7 @@ struct WeakRequirementRef {
 constexpr size_t kMaxWeakRequirements = 4096;
 WeakRequirementRef g_weakRequirements[kMaxWeakRequirements]{};
 size_t g_weakRequirementCount = 0;
+bool g_weakRegistryStopping = false;
 SRWLOCK g_weakRequirementLock = SRWLOCK_INIT;
 
 struct RequirementFactoryObject { void** vftable; };
@@ -94,8 +95,7 @@ struct StdVectorPtr {
 };
 bool FindFactoryObjectByTypeName(const char* wantedName, RequirementFactoryObject** outFactory);
 
-// This project's HookAPI.h intentionally retains the legacy ABI layout.
-// Probe the appended current-image resolver only when structSize permits it.
+// OnLoad requires the current HookAPI layout before any resolver is accessed.
 void* ResolveSpec(HookAPI* api, const SymbolSpec& spec) {
     if (!api) {
         return nullptr;
@@ -209,6 +209,56 @@ struct SharedPointerPairGuard {
     }
 };
 
+void ReleaseWeakReference(void* control) {
+    if (!control) return;
+    auto* weakCount = reinterpret_cast<volatile LONG*>(static_cast<char*>(control) + 12);
+    if (_InterlockedDecrement(weakCount) == 0) {
+        auto** vt = *reinterpret_cast<void***>(control);
+        using DeleteControlFn = void(__fastcall*)(void*);
+        reinterpret_cast<DeleteControlFn>(vt[1])(control);
+    }
+}
+
+// A copied registry entry must own a weak reference too: OnUnload may clear
+// the registry while a refresh still holds its snapshot.
+struct WeakRequirementSnapshot {
+    WeakRequirementRef entries[kMaxWeakRequirements]{};
+    size_t count = 0;
+
+    WeakRequirementSnapshot() {
+        AcquireSRWLockShared(&g_weakRequirementLock);
+        count = g_weakRequirementCount;
+        std::memcpy(entries, g_weakRequirements, count * sizeof(WeakRequirementRef));
+        for (size_t i = 0; i < count; ++i) {
+            _InterlockedIncrement(reinterpret_cast<volatile LONG*>(
+                static_cast<char*>(entries[i].control) + 12));
+        }
+        ReleaseSRWLockShared(&g_weakRequirementLock);
+    }
+    ~WeakRequirementSnapshot() {
+        for (size_t i = 0; i < count; ++i) ReleaseWeakReference(entries[i].control);
+    }
+    WeakRequirementSnapshot(const WeakRequirementSnapshot&) = delete;
+    WeakRequirementSnapshot& operator=(const WeakRequirementSnapshot&) = delete;
+};
+
+void ClearWeakRequirements() {
+    WeakRequirementRef retired[kMaxWeakRequirements]{};
+    AcquireSRWLockExclusive(&g_weakRequirementLock);
+    g_weakRegistryStopping = true;
+    const size_t count = g_weakRequirementCount;
+    std::memcpy(retired, g_weakRequirements, count * sizeof(WeakRequirementRef));
+    std::memset(g_weakRequirements, 0, count * sizeof(WeakRequirementRef));
+    g_weakRequirementCount = 0;
+    ReleaseSRWLockExclusive(&g_weakRequirementLock);
+
+    // Native control-block destructors still belong to the mapped GameCore.
+    // Release outside the registry lock, in OnUnload, never in DllMain.
+    for (size_t i = 0; i < count; ++i) ReleaseWeakReference(retired[i].control);
+    if (g_api) g_api->Log("PlotRouteTypeMatches: released %llu tracked weak reference(s)",
+        static_cast<unsigned long long>(count));
+}
+
 void* TryLockWeakReference(const WeakRequirementRef& weak) {
     if (!weak.object || !weak.control) {
         return nullptr;
@@ -244,6 +294,10 @@ bool TrackWeakRequirement(void* req, int routeIndex) {
     }
 
     AcquireSRWLockExclusive(&g_weakRequirementLock);
+    if (g_weakRegistryStopping) {
+        ReleaseSRWLockExclusive(&g_weakRequirementLock);
+        return false;
+    }
     for (size_t i = 0; i < g_weakRequirementCount; ++i) {
         if (g_weakRequirements[i].object == weak.object
             && g_weakRequirements[i].control == weak.control) {
@@ -351,11 +405,8 @@ int InvokeRouteRequirementTest(void* req) {
 
 
 void RefreshTrackedRouteRequirements() {
-    WeakRequirementRef snapshot[kMaxWeakRequirements]{};
-    AcquireSRWLockShared(&g_weakRequirementLock);
-    const size_t count = g_weakRequirementCount;
-    std::memcpy(snapshot, g_weakRequirements, count * sizeof(WeakRequirementRef));
-    ReleaseSRWLockShared(&g_weakRequirementLock);
+    WeakRequirementSnapshot snapshot;
+    const size_t count = snapshot.count;
 
     if (g_api) {
         g_api->Log(
@@ -363,7 +414,7 @@ void RefreshTrackedRouteRequirements() {
             static_cast<unsigned long long>(count));
     }
     for (size_t i = 0; i < count; ++i) {
-        void* req = TryLockWeakReference(snapshot[i]);
+        void* req = TryLockWeakReference(snapshot.entries[i]);
         if (!req) {
             continue;
         }
@@ -375,10 +426,10 @@ void RefreshTrackedRouteRequirements() {
                     "PlotRouteTypeMatches: route refresh req=%p state=%d routeIndex=%d",
                     req,
                     state,
-                    snapshot[i].routeIndex);
+                    snapshot.entries[i].routeIndex);
             }
         }
-        ReleaseStrongReference(snapshot[i].control);
+        ReleaseStrongReference(snapshot.entries[i].control);
     }
 }
 
@@ -780,14 +831,14 @@ bool PushRouteFactory(HookAPI* api) {
         return true;
     }
 
-    void* mem = g_opNew ? g_opNew(8) : operator new(8, std::nothrow);
-    if (!mem || types->end == types->capacity) {
-        if (mem && !g_opNew) {
-            operator delete(mem);
-        }
-        api->Log("PlotRouteTypeMatches: cannot allocate/push route factory");
+    if (types->end == types->capacity) {
+        api->Log("PlotRouteTypeMatches: Registry::GetTypes() full");
         return false;
     }
+    // The native registry owns deletion, so use the native allocator.
+    if (!g_opNew) return false;
+    void* mem = g_opNew(sizeof(RequirementFactoryObject));
+    if (!mem) return false;
     std::memset(mem, 0, 8);
     auto* factory = static_cast<RequirementFactoryObject*>(mem);
     factory->vftable = g_ourRouteFactoryVftable;
@@ -828,7 +879,7 @@ bool NewRequirements_RegisterPlotRoute(HookAPI* api) {
 
     if (!g_getTypes || !g_routeTestPlot || !g_plotRequirementTest
         || !g_setRouteTypeOnPlot || !g_routeGetDefinitions || !g_makeHash
-        || !g_setState || !g_argProcessorVftable || !g_routeRequirementTypeHash) {
+        || !g_opNew || !g_setState || !g_argProcessorVftable || !g_routeRequirementTypeHash) {
         api->Log("PlotRouteTypeMatches: missing critical symbols");
         return false;
     }
@@ -864,4 +915,8 @@ bool NewRequirements_RegisterPlotRoute(HookAPI* api) {
     const bool registered = PushRouteFactory(api);
     api->Log("PlotRouteTypeMatches: registration %s", registered ? "OK" : "FAILED");
     return registered;
+}
+
+void NewRequirements_UnloadPlotRoute() {
+    ClearWeakRequirements();
 }

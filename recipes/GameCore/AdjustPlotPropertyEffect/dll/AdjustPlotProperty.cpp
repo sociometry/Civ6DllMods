@@ -113,8 +113,11 @@ void* g_applyUnit = nullptr;
 void* g_removeUnit = nullptr;
 void* g_getTypeNameUnit = nullptr;
 
-void* g_ourFactoryVftable[32]{};
-void* g_ourEffectVftable[32]{};
+// Preserve the donor RTTI pointer at vtable[-1] for native RTTI consumers.
+void* g_ourFactoryVftableStorage[33]{};
+void* g_ourEffectVftableStorage[33]{};
+void** const g_ourFactoryVftable = g_ourFactoryVftableStorage + 1;
+void** const g_ourEffectVftable = g_ourEffectVftableStorage + 1;
 bool g_vtablesReady = false;
 
 struct FactoryObject {
@@ -143,8 +146,9 @@ void* ResolveSpec(HookAPI* api, const SymbolSpec& spec) {
         return addr;
     }
     if (spec.newRvaHint) {
-        return api->ResolveByRva(
-            kHookImageGameCoreXP2, static_cast<uintptr_t>(spec.newRvaHint), 1);
+        // This is already a current-image RVA; do not apply old->new correction.
+        return api->ResolveByRvaEx(
+            kHookImageGameCoreXP2, static_cast<uintptr_t>(spec.newRvaHint), 1, kSectionImage);
     }
     return api->ResolveByRva(
         kHookImageGameCoreXP2, static_cast<uintptr_t>(spec.oldRva), 1);
@@ -326,8 +330,10 @@ bool BuildVtables(HookAPI* api) {
     }
     auto** srcFactory = reinterpret_cast<void**>(g_unitFactoryVftable);
     auto** srcEffect = reinterpret_cast<void**>(g_unitEffectVftable);
-    std::memcpy(g_ourFactoryVftable, srcFactory, sizeof(g_ourFactoryVftable));
-    std::memcpy(g_ourEffectVftable, srcEffect, sizeof(g_ourEffectVftable));
+    g_ourFactoryVftable[-1] = srcFactory[-1];
+    g_ourEffectVftable[-1] = srcEffect[-1];
+    std::memcpy(g_ourFactoryVftable, srcFactory, 32 * sizeof(void*));
+    std::memcpy(g_ourEffectVftable, srcEffect, 32 * sizeof(void*));
 
     int createSlot = FindSlot(srcFactory, reinterpret_cast<void*>(g_createUnitFactory), 32);
     int typeNameSlot = FindSlot(srcFactory, g_getTypeNameUnit, 32);
@@ -417,12 +423,14 @@ bool PushFactory(HookAPI* api) {
         return true;
     }
 
-    void* mem = nullptr;
-    if (g_opNew) {
-        mem = g_opNew(sizeof(FactoryObject));
-    } else {
-        mem = operator new(sizeof(FactoryObject), std::nothrow);
+    if (types->end == types->capacity) {
+        api->Log("AdjustPlotProperty: Registry::GetTypes() is full; cannot append factory safely");
+        return false;
     }
+
+    // The native registry owns deletion, so use the native allocator.
+    if (!g_opNew) return false;
+    void* mem = g_opNew(sizeof(FactoryObject));
     if (!mem) {
         return false;
     }
@@ -430,11 +438,6 @@ bool PushFactory(HookAPI* api) {
     auto* factory = static_cast<FactoryObject*>(mem);
     factory->vftable = g_ourFactoryVftable;
     factory->typeHash = typeHash;
-
-    if (types->end == types->capacity) {
-        api->Log("AdjustPlotProperty: Registry::GetTypes() is full; cannot append factory safely");
-        return false;
-    }
 
     *types->end = factory;
     ++types->end;
@@ -456,7 +459,7 @@ bool EnsureFactory(HookAPI* api) {
 }  // namespace
 
 bool AdjustPlotPropertyEffect_Register(HookAPI* api) {
-    if (!api) {
+    if (!HookAPI_IsCompatible(api)) {
         return false;
     }
     g_api = api;
@@ -484,7 +487,7 @@ bool AdjustPlotPropertyEffect_Register(HookAPI* api) {
     api->Log("  FactoryVF=%p EffectVF=%p GameEdit=%p Dispatch=%p",
         g_unitFactoryVftable, g_unitEffectVftable, g_gameEdit, g_plotCoordDispatch);
 
-    if (!g_createUnitFactory || !g_unitFactoryVftable || !g_unitEffectVftable || !g_getTypes) {
+    if (!g_opNew || !g_createUnitFactory || !g_unitFactoryVftable || !g_unitEffectVftable || !g_getTypes) {
         api->Log("AdjustPlotProperty: missing critical symbols");
         return false;
     }

@@ -1,32 +1,42 @@
-# PatchExe — patch 游戏 exe 示例
+# PatchExe — 修改 DX11 容量判断的 Global 示例
 
-示范 Global 插件通过 `HookAPI::Patch` 修改 DX11
-`CivilizationVI.exe` 的单个字节，并在卸载时通过 `Unpatch` 恢复。
+通过 `HookAPI::Patch` 修改 `ResourceList.AddResource` 的容量判断，演示 exe
+补丁、指令校验和恢复。保持原示例行为：将比较阈值从 **8192 降为 256**，
+让容量错误路径更容易触发；这不是提高容量的补丁。
 
-## 补丁
+## 已核对的指令
 
-- 目标：`ResourceList.AddResource` 相关逻辑
-- RVA：`0x9407CF`
-- 新值：`0x01`
-- 适用程序：`Win64Steam/CivilizationVI.exe`（非 DX12）
+参考程序：`CivilizationVI.exe`，版本 `1.0.12.68 (1023995)`，PE timestamp
+`0x667C6FC6`，SizeOfImage `0x036D1000`。
 
-代码使用统一入口
-`ResolveByRva(kHookImageExeDx11, 0x9407CF, 1)` 解析地址；若当前是 DX12
-或 RVA 越界，接口直接返回空。
+SHA-256：`8396ACA228300A47A79A18697A927C8A4526B317E689558DDC24925F1523B99D`。
+
+```text
+RVA 0x9407CD: 3D 00 20 00 00    cmp eax, 0x2000
+RVA 0x9407CF:       20 -> 01
+修改后的指令: 3D 00 01 00 00    cmp eax, 0x100
+```
+
+`PatchTargetSignature.h` 保存从 RVA `0x9407C9` 开始的 16 字节完整指令窗口。
+`OnLoad` 先检查 ABI、必要接口和 DX11 映像，再通过 `ResolveByRva` 取得映射后的
+窗口，逐字节核对后才写入。无法解析、原字节已被修改或指令不匹配时跳过。
+局部签名不代表自动支持所有未来版本；更新后仍应核对指令含义。
+
+窗口不包含函数入口，因此可以与 HookExe 的入口 Hook 一起使用。
+DX12 的同一 RVA 是不同代码；本示例会明确跳过 DX12，不会使用 DX11 的偏移修改它。
 
 ## 构建与部署
+
+在仓库根目录的 x64 Developer PowerShell 中执行：
 
 ```powershell
 msbuild recipes\Global\PatchExe\dll\PatchExe.vcxproj /p:Configuration=Release /p:Platform=x64
 ```
 
-产物：
+VS 2026 使用 v145 时可追加 `/p:PlatformToolset=v145`。Debug/Release 均定义
+`CIV6_PLUGIN_GLOBAL`，头文件与当前 Loader 同步。
 
-```text
-x64/Release/PatchExe.dll
-```
-
-部署到：
+产物为 `x64/Release/PatchExe.dll`，放到已启用 Mod 的：
 
 ```text
 Binaries/Win64/Plugins/Global/PatchExe.dll
@@ -34,22 +44,23 @@ Binaries/Win64/Plugins/Global/PatchExe.dll
 
 ## 验证
 
-`Civ6DllLoader_Runtime.log` 应出现：
+完全退出游戏后启动 DX11，`Civ6DllLoader_Loader.log` 应出现：
 
 ```text
-PatchExe: patched exe RVA 0x9407CF @ ...: .. -> 01
+PatchExe: patched exe anchor RVA 0x9407CF @ ...: 20 -> 01
 ```
 
-随后 `Renderer.log` 应出现：
+Global 插件在启动时加载，并随进程保持；返回主菜单、读档不应卸载或再次打补丁。
+重复 `OnLoad` 会保留第一次的恢复记录。与 HookExe 一起测试时，读档后
+HookExe 的计数应继续增长，不应从头开始。
 
-```text
-Error: ResourceList.AddResource(), attempting to add more than %d items.
-```
+实际达到容量条件时，`Renderer.log` 可能出现 `ResourceList.AddResource()`
+的容量提示；它仍打印原来的 8192，因为本示例只修改判断立即数，不修改日志参数。
+没有出现容量提示不能单独判定补丁失效。
 
-卸载插件时，Runtime 日志应出现恢复记录。
+`OnUnload` 使用 `Unpatch` 恢复原字节；恢复失败会记录 `rollback still pending`
+并保留重试状态，Loader 还有按 owner 恢复补丁的清理路径。
+普通 GameCore 重载不调用 Global 的 `OnUnload`；关闭进程时也不能以是否出现
+该日志判断通过。禁用或替换 Global DLL 后需重启游戏。
 
-## 注意
-
-该 RVA 仅针对 DX11 的 `CivilizationVI.exe`。示例会拒绝
-`CivilizationVI_DX12.exe`，但不会以固定原字节作为版本签名；游戏更新后应重新核对
-RVA 和指令含义，再部署补丁。
+启动 DX12 应记录 `DX12 unsupported` 并跳过。当前适配不包含 DX12 的功能补丁。
