@@ -23,7 +23,7 @@
     <Files>
         <File>Binaries/Win64/GameCore_XP2_Shell_FinalRelease.dll</File>
         <File>Binaries/Win64/Civ6DllLoader.runtime.dll</File>
-        <File>Binaries/Win64/Plugins/YourFeature.dll</File>
+        <File>Binaries/Win64/Plugins/Global/YourFeature.dll</File>
         <File>Data/Config.sql</File>
     </Files>
 </Mod>

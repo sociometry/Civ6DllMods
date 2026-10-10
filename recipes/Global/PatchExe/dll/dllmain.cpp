@@ -50,9 +50,11 @@ extern "C" __declspec(dllexport) void OnLoad(HookAPI* api) {
 extern "C" __declspec(dllexport) void OnUnload() {
     if (!g_target) return;
     if (!g_api->Unpatch(g_target)) {
-        // Keep our record for a retry. The loader also owns a fallback rollback
-        // record; do not claim success or overwrite the saved original byte.
-        g_api->Log("PatchExe: restore failed @ %p; rollback still pending", g_target);
+        // Restore failed (e.g. another plugin stacked a patch on this address after
+        // ours, so ours is no longer on top of the stack). The loader does not
+        // roll back patches for us: the byte stays patched until process exit.
+        // Keep the record so a later call can retry.
+        g_api->Log("PatchExe: restore failed @ %p; patch remains applied", g_target);
         return;
     }
     g_api->Log("PatchExe: restored exe anchor RVA 0x%X",
