@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  主菜单界面定义。
+
+  加载链路：Loader 在 .modinfo 的 <FrontEndActions>/<ImportFiles> 里找到本文件后，
+  调 ForgeUI 的 AllocateControl<LuaContext> 建 context、挂到 loader 的根容器
+  （根容器名 AdditionalFrontEndUI）下，再调 Initialize("FrontEndUI_YourFeature")
+  ——Initialize 按 base name 去读同目录的 FrontEndUI_YourFeature.lua。
+  所以：.xml 与 .lua 必须同名同目录，且前缀 FrontEndUI_ 不能改。
+
+  ForgeUI 控件与属性的完整说明见游戏安装目录下的 Civ6Docs.html（ForgeUI 部分）。
+  本文件只是一个最小可改的骨架，不是完整控件清单。
+-->
+<Context Name="YourFeaturePanel">
+    <!-- 初始隐藏；由同目录 .lua 里的 ContextPtr:SetHide(false) 显示 -->
+    <Container ID="RootContainer" Size="parent,parent" Anchor="C,C"
+               Hidden="1" ConsumeMouseButton="1">
+
+        <Label ID="TitleLabel" Anchor="C,T" Offset="0,40"
+               String="LOC_YOUR_FEATURE_TITLE" Font="Font_22" Align="Center" />
+
+        <GridButton ID="OpenButton" Anchor="C,T" Offset="0,90" Size="200,40"
+                    Texture="Controls_GenericButton" SliceCorner="14,14"
+                    SliceTextureSize="28,28">
+            <Label ID="ButtonLabel" Anchor="C,C" String="LOC_YOUR_FEATURE_BUTTON"
+                   Font="Font_14" Align="Center" />
+        </GridButton>
+
+    </Container>
+</Context>

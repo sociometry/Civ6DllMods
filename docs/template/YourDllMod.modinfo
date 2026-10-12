@@ -19,11 +19,21 @@
             </Properties>
             <File>Data/Config.sql</File>
         </UpdateDatabase>
+
+        <!-- 主菜单界面：文件名必须以 FrontEndUI_ 开头、以 .xml 结尾；
+             同名的 .lua 由 ForgeUI 按 base name 自动带出，不必在这里声明。
+             整个 ImportFiles 块加 criteria 会导致块内所有声明都不加载，
+             且 Criteria 元素必须排在 File 前面。详见 PLUGIN_GUIDE.md §7。 -->
+        <ImportFiles id="FrontEndUI">
+            <File>UI/FrontEnd/FrontEndUI_YourFeature.xml</File>
+        </ImportFiles>
     </FrontEndActions>
     <Files>
         <File>Binaries/Win64/GameCore_XP2_Shell_FinalRelease.dll</File>
         <File>Binaries/Win64/Civ6DllLoader.runtime.dll</File>
         <File>Binaries/Win64/Plugins/Global/YourFeature.dll</File>
         <File>Data/Config.sql</File>
+        <File>UI/FrontEnd/FrontEndUI_YourFeature.xml</File>
+        <File>UI/FrontEnd/FrontEndUI_YourFeature.lua</File>
     </Files>
 </Mod>

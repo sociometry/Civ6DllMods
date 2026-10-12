@@ -16,6 +16,7 @@
   → 挂钩 GameCore::LoadDLL
   → 引擎请求加载 GameCore 时，detour 自动重定向回官方原版 GameCore DLL（薄壳永不加载）
   → 接管 GameCore 生命周期（Phase B），自动扫描并加载各 Mod 的插件 DLL
+  → 主菜单建好后，把各 Mod 声明的 FrontEndUI_*.xml 挂进主菜单（无需插件 DLL）
 
 [首次引导（未安装 version.dll）]
 玩家安装带薄壳的 Mod 进入游戏
@@ -33,6 +34,7 @@
 | `Civ6DllLoader.runtime.dll` | Loader 发行包（运行时核心） | 原样放进 Mod 的 `Binaries/Win64/`，多 Mod 共存时自动按版本号最高者竞选启动 |
 | `Plugins/Global/*.dll` 或 `Plugins/GameCore/*.dll` | **自己编译** | 你的插件 DLL，导出 `OnLoad`（可选导出 `OnMessage`，无需实现 `OnUnload`） |
 | `HookAPI.h` | Loader 发行包 | 插件工程唯一需要包含的 C/C++ 接口头文件 |
+| `UI/FrontEnd/FrontEndUI_*.xml` + `.lua` | **自己写** | 主菜单界面，**不需要编译**；在 `.modinfo` 里登记即可（见 §7） |
 
 ---
 
@@ -55,6 +57,9 @@ MyAwesomeMod/
   MyAwesomeMod.modinfo          ← UTF-8 无 BOM
   Data/
     Config.sql                  ← 用于首次引导接管，PackageId 填写本 modinfo 的 id
+  UI/FrontEnd/                  ← 主菜单界面（按需，见 §7；不需要编译）
+    FrontEndUI_MyMod.xml
+    FrontEndUI_MyMod.lua
   Binaries/Win64/
     GameCore_XP2_Shell_FinalRelease.dll
     Civ6DllLoader.runtime.dll
@@ -69,6 +74,9 @@ MyAwesomeMod/
 > - `Binaries/Win64/Plugins/Global/*.dll`：识别为 **Global 插件**。
 > - `Binaries/Win64/Plugins/GameCore/*.dll`：识别为 **GameCore 插件**。
 > - **切勿直接把插件 DLL 放在 `Plugins/` 根目录下**，直接放在根目录的 DLL 会被扫描器忽略，无法加载。
+
+> 只有主菜单界面、且不需要 C++ 逻辑的 Mod，可以**完全不编译 DLL**——只保留薄壳 + runtime 加上
+> `UI/FrontEnd/` 下的一对 `FrontEndUI_*.xml` / `.lua`（见 §7）。
 
 ### Config.sql 模板（引导配置）
 
@@ -134,7 +142,7 @@ extern "C" __declspec(dllexport) void OnUnload();
 > 1. `HookAPI.h` 根据该宏在编译期自动生成 `Civ6PluginKind` 导出函数（返回类别 1 或 2，以及 API 版本）。
 > 2. Loader 在调用 `OnLoad` 之前，会读取该导出并核对插件所处的物理目录（`Global` 或 `GameCore`）。若宏声明与所在目录不一致，Loader 会在执行任何插件代码前**直接拒载**。
 > 3. 若未定义宏，包含 `HookAPI.h` 将直接触发 `#error` 阻止编译。
-> 4. 若为 Global 插件（定义了 `CIV6_PLUGIN_GLOBAL`），GameCore 专属接口（如 `RegisterScriptGlobals`、`PushLuaMethods`、`EditPlayer`、`GetEngineUtility`、`RegisterGameEvent` 等）将在编译期被宏重命名拦截，调用时直接报编译错误，防止跨生命周期非法调用。
+> 4. 若为 Global 插件（定义了 `CIV6_PLUGIN_GLOBAL`），GameCore 专属接口（如 `RegisterScriptGlobals`、`PushLuaMethods`、`EditPlayer`、`RegisterGameEvent` 等）将在编译期被宏重命名拦截，调用时直接报编译错误，防止跨生命周期非法调用。
 
 ---
 
@@ -159,9 +167,19 @@ AOB（Array of Bytes）是本文多处用到的基础定位手段，语法由 `R
 | `48` | 该字节必须精确等于 `0x48` | `48 89 5C 24` |
 | `??` | 该字节任意取值（整字节通配） | `48 89 ?? ??` |
 | `4?` | 高半字节固定为 `4`，低半字节任意 | 匹配 `0x40`–`0x4F` |
-| `?F` | 低半字节固定为 `F`，高半字节任意 | 匹配 `0x0F`、`0x1F`…`0xFF` |
+| `?F` | 低半字节固定为 `F`，高半字节任意 | 匹配 `0x0F`、`0x1F`…`0xFF`（低半字节为 `F` 的全部 16 个值） |
 
-十六进制字母大小写均可。**通配符只能出现在半字节位置**，`?` 必须成对或与一个十六进制字符搭配，写出 `4` 或 `?5?` 这类奇数长度会直接解析失败并返回 `nullptr`。
+十六进制字母大小写均可。**通配符只能出现在半字节位置**：`?` 必须成对（`??`）或与一个十六进制字符搭配（`4?`），每个字节都要写满两个半字节。
+
+某个字节只写了**一个**半字节（如 `4` 或 `?5?`）通常会解析失败并返回 `nullptr`——**但有一种例外要当心**：那多出来的半个若紧跟十六进制字符（中间没有空格），它会被当成下一个字节的第一个半字节吞掉，**不报错也不返回 nullptr**：
+
+| 写的 | 结果 |
+|---|---|
+| `4` / `?5?` / `48 8B 4` | 解析失败（返回 `nullptr`） |
+| `?5? 48 8B` | 解析失败（返回 `nullptr`） |
+| **`?5?4 8B`** | **解析成 `?5 ?4 8B`——你以为的 `?5?` 变成了 `?5` 加 `?4`** |
+
+最后一行是静默错配：不报错，但匹配的是另一个模式。所以字节之间可以省略分隔符（`488B??` 等价于 `48 8B ??`），但**不要让任何一个字节只写一个半字节**。
 
 ```cpp
 // 在 .text 段搜索首个命中（section 可换 kSectionImage / kSectionRdata 等）：
@@ -518,7 +536,124 @@ end)
 
 ---
 
-## 7. 常见问题排查（FAQ）
+## 7. 添加主菜单 UI（FrontEnd）
+
+前面六章讲的都是**插件 DLL**。这一章不一样：**给主菜单加一块自己的界面**，只要写文件，不用编译 DLL、不用 `OnLoad`、也不用管 `CIV6_PLUGIN_*` 宏。
+
+你要做的事只有两件：写一对同名的 `FrontEndUI_*.xml` + `.lua`，然后在 `.modinfo` 里声明。剩下的由 Loader 完成——它会在主菜单建好之后把你的界面挂进去，用不着你写一行 C++。
+
+> 适用场景：**主菜单**（FrontEnd）上的面板、按钮、弹窗。对局内的界面（InGame）不走这条路，仍要用原生
+> `AddUserInterfaces` + `ReplaceUIScript` 声明。
+
+### 7.1 文件与命名
+
+```text
+MyAwesomeMod/
+  MyAwesomeMod.modinfo          ← 声明（见 7.2），UTF-8 无 BOM
+  UI/FrontEnd/
+    FrontEndUI_MyMod.xml        ← 界面定义
+    FrontEndUI_MyMod.lua        ← 逻辑，与 xml 同名同目录
+  Binaries/Win64/
+    GameCore_XP2_Shell_FinalRelease.dll
+    Civ6DllLoader.runtime.dll
+```
+
+文件名不能随便起，**不满足下面任何一条，这个界面就不会被加载**（日志里只有"发现 N 个"的计数，不会指出是哪一个被跳过）：
+
+| 要求 | 说明 |
+|---|---|
+| 前缀必须是 `FrontEndUI_` | 这是 Loader 的识别标志，大小写不敏感 |
+| 扩展名必须是 `.xml` | 只声明 xml；同名的 `.lua` 会自动一起加载，不用声明 |
+| 前缀后面至少还有一个字符 | `FrontEndUI_.xml` 不合法 |
+| 必须写相对路径 | 不能以 `/` 或 `\` 开头，也不能带盘符（`:`） |
+| 不能用 `.` 或 `..` 做目录名 | 界面文件必须待在你自己的 Mod 目录里 |
+
+`.xml` 与 `.lua` 必须**同名同目录**。两个 Mod 声明了同名文件时只加载一份。
+
+### 7.2 在 .modinfo 里声明
+
+在 `<FrontEndActions>` 下加一个 `<ImportFiles>`，列出 `.xml`：
+
+```xml
+<FrontEndActions>
+    <UpdateDatabase id="Config">
+        <Properties><LoadOrder>100</LoadOrder></Properties>
+        <File>Data/Config.sql</File>
+    </UpdateDatabase>
+
+    <ImportFiles id="FrontEndUI">
+        <File>UI/FrontEnd/FrontEndUI_MyMod.xml</File>
+    </ImportFiles>
+</FrontEndActions>
+```
+
+三个元素必须**一层套一层**，中间不能加别的元素：`ImportFiles` 直接放在 `FrontEndActions` 里，`File` 直接放在 `ImportFiles` 里。多包一层就找不到了：
+
+```xml
+<!-- ✗ 找不到：ImportFiles 外面套了 <Group> -->
+<FrontEndActions>
+    <Group><ImportFiles><File>UI/FrontEnd/FrontEndUI_MyMod.xml</File></ImportFiles></Group>
+</FrontEndActions>
+
+<!-- ✗ 也找不到：File 外面套了 <Items> -->
+<FrontEndActions>
+    <ImportFiles><Items><File>UI/FrontEnd/FrontEndUI_MyMod.xml</File></Items></ImportFiles>
+</FrontEndActions>
+```
+
+`<File>` 里写完整路径（含目录），扩展名写 `.xml`。同目录下的 `.lua` 会自动跟着加载。
+
+### 7.3 不支持条件加载
+
+**这条路注入的界面一定会加载，不能加条件。** 如果你给 `<ImportFiles>` 加了 `criteria` 属性、或者在里面写了 `<Criteria>` 元素，结果不是"满足条件才加载"，而是**这块里声明的 `<File>` 全都不加载**：
+
+```xml
+<!-- ✗ 结果是这个界面完全不加载，不是"满足条件才加载" -->
+<ImportFiles id="FrontEndUI" criteria="MyCriteria">
+    <File>UI/FrontEnd/FrontEndUI_MyMod.xml</File>
+</ImportFiles>
+```
+
+（Loader 判断 `<Criteria>` 是按它在 XML 里出现的**先后顺序**记的，所以写在 `<File>` 后面的 `<Criteria>` 拦不住前面的 `<File>`。这个顺序和 Civ6 原生 `.modinfo` 的直觉相反，但结论一样：**别在这里写条件**。）
+
+界面若确实需要按条件出现，两条路：
+
+- 让界面**总是注入**，在 `.lua` 里自己判断该不该显示（`ContextPtr:SetHide(true)`）；
+- 改用对局内的原生 UI 机制（`AddUserInterfaces` + `ReplaceUIScript`），那条路支持 `criteria`。
+
+### 7.4 .modinfo 本身的几条要求
+这几条不满足，整个 Mod 的界面都不会注入：
+
+- Mod 必须**已启用**（游戏里灰掉的不算）；
+- 一个 Mod 目录里**只能有一个** `.modinfo`，有两个会被整个跳过（日志有记录）；
+- `.modinfo` 必须是 **UTF-8**（带 BOM 可以，会自动处理；UTF-16 不行），且不超过 256 KB。
+
+### 7.5 出问题时看日志
+
+进主菜单后打开 `Civ6DllLoader_Loader.log`，搜 `UiInject:`。正常应当看到两行：
+
+```
+UiInject: 发现 2 个 Mod UI
+UiInject: context 已加载 (FrontEndUI_MyMod)
+```
+
+对照着定位：
+
+| 日志情况 | 问题在哪 |
+|---|---|
+| 连 `发现 N 个 Mod UI` 都没有 | `.modinfo` 声明没读进来——检查 §7.2 的三层嵌套、§7.4 的几条要求 |
+| 有 `发现 N 个`，但没有你自己那个文件名 | 文件名或路径不合规——对照 §7.1 的表 |
+| 有 `context 已加载 (你的文件名)`，界面却不显示 | 问题在界面自己（XML 布局或 Lua 没显示它），与 Loader 无关 |
+
+### 7.6 注意
+
+- **只覆盖主菜单**。对局内界面不在此列（见 §7 开头）。
+- **无条件加载**（见 7.3）。
+- **界面会随主菜单重建而重建**。极少数情况下这一次不会重注，界面要等下一次主菜单重建才回来；重启游戏必定恢复。
+
+---
+
+## 8. 常见问题排查（FAQ）
 
 ### Q：玩家需要单独订阅或下载前置 Loader 吗？
 **A：不需要。** 每个采用本体系的 Mod 都按规范在 `Binaries/Win64/` 自带薄壳与 `Civ6DllLoader.runtime.dll`。若玩家首次安装 Mod，薄壳会自动完成 `version.dll` 接管引导；若已存在 `version.dll`，则始终进入稳态运行。
@@ -536,7 +671,7 @@ end)
 **A：触发了编译期门禁保护。** 你的插件定义了 `CIV6_PLUGIN_GLOBAL`，而这些接口属于 GameCore 对局专属接口（生命周期受对局创建/销毁限制，常驻插件调用会发生空指针或非法访问）。如果确实是玩法逻辑插件，应转为 GameCore 插件（定义 `CIV6_PLUGIN_GAMECORE` 并放入 `Plugins/GameCore/` 目录）。
 
 ### Q：游戏更新后插件需要重新编译发布吗？
-**A：通常不需要。** Loader 内置跨版本对齐（`PdataMatch`），插件若采用第 5 节推荐的 `HookInfo`、`ResolveByHookInfo` 或 `ResolveByName` 写法，旧 RVA 或符号名在更新后会自动矫正到新地址。若定位失败，可查看 `Documents/My Games/Sid Meier's Civilization VI/Logs/Civ6DllLoader_Runtime.log` 中的警告。
+**A：通常不需要。** Loader 内置跨版本对齐（`PdataMatch`），插件若采用第 5 节推荐的 `HookInfo`、`ResolveByHookInfo` 或 `ResolveByName` 写法，旧 RVA 或符号名在更新后会自动矫正到新地址。若定位失败，可查看 `Documents/My Games/Sid Meier's Civilization VI/Logs/Civ6DllLoader_Loader.log` 中的警告。
 
 ### Q：`OnUnload` 里要做什么清理吗？
 **A：不需要，保持空实现或直接不导出即可。** Loader 会自动回收钩子、参数捕获与消息订阅；退局或重载时，整个 GameCore 模块由引擎完整释放。详见 §3 的生命周期说明。
@@ -544,11 +679,17 @@ end)
 ### Q：用 `Patch` 改了内存，卸载插件时会自动还原吗？
 **A：不会。** Loader 不对补丁做自动回滚，写入的字节在进程退出前持续有效。因此补丁应按"生效后不还原"来设计。`Unpatch` 可用于运行期动态撤销，但不要把它当作卸载清理的常规步骤（详见 §6.3）。
 
+### Q：只想给主菜单加个面板，也必须写 C++ 插件吗？
+**A：不必。** 主菜单 UI 走 Mod 包声明：放一对 `FrontEndUI_*.xml` + `.lua`，在 `.modinfo` 的 `<FrontEndActions>/<ImportFiles>` 里登记即可，不需要 DLL。详见 §7。
+
+### Q：主菜单 UI 没出现，怎么排查？
+**A：** 依次核对——① 文件名是否以 `FrontEndUI_` 开头、以 `.xml` 结尾，且与 `.lua` 同名同目录；② `.modinfo` 里 `ImportFiles` 是否直接挂在 `FrontEndActions` 下；③ Mod 是否已启用；④ `Civ6DllLoader_Loader.log` 里是否出现 `UiInject: 发现 N 个 Mod UI` 与 `UiInject: context 已加载 (你的文件名)`。详见 §7.5。
+
 ---
 
 ## 附录 A：HookAPI 接口全表
 
-`HookAPI` 是一个**只读**函数指针表（写在 `.rdata`，写入会当场崩溃）。以下按用途分组列出全部 76 个入口。
+`HookAPI` 是一个**只读**函数指针表（写在 `.rdata`，写入会当场崩溃）。以下按用途分组列出全部 77 个入口。
 
 **通用约定**：
 - 所有 `void* L` 参数都是 Lua 状态指针，**必须**是 `GetMainLuaState()` 的返回值或回调（`ScriptGlobalsFn` / `GameEventPushFn` / `LuaMethodFunc`）传入的那个 `L`；传 `nullptr` 会被拒绝并记日志。
@@ -772,30 +913,18 @@ api->LocDestroy(loc);
 | 接口 | 签名 | 说明 |
 |------|------|------|
 | `EditPlayer` ✱ | `void*(int playerId)` | 取玩家对象指针。对局开始前返回 nullptr。 |
-| `GetEngineUtility` ✱ | `void*()` | 取 EngineUtility 全局对象（用于自行取放 GameCore 锁）。GameCore 未就绪返回 nullptr。 |
 | `MakeHash` | `uint32_t(const char*)` | 与引擎 `GameCore::Utilities::MakeHash` 逐位一致的 CRC32。**纯本地计算**，对局前/重载后都能用。 |
-| `Log` | `void(const char* fmt, ...)` | 写 `Civ6DllLoader_Runtime.log`。 |
+| `Log` | `void(const char* fmt, ...)` | 写 `Civ6DllLoader_Loader.log`。 |
 
 ```cpp
 uint32_t h = api->MakeHash("QUEST_SEND_TRADE_ROUTE");   // 与引擎内部哈希一致
 api->Log("hash of quest = 0x%08X", h);
 ```
 
-```cpp
-// 需要在一段 Lua 操作期间独占 GameCore 锁时（与官方 CallHook 同款三步）：
-void* eu = api->GetEngineUtility();
-if (eu) {
-    auto* vt = *reinterpret_cast<void***>(eu);
-    using Fn0 = bool(__fastcall*)(void*);
-    using Fn1 = void(__fastcall*)(void*);
-    const bool had = reinterpret_cast<Fn0>(vt[6])(eu);   // HasGameCoreLock
-    if (had) reinterpret_cast<Fn1>(vt[7])(eu);           // ReleaseGameCoreLock
-    // ... 此处做需要独占的 Lua 工作 ...
-    if (had) reinterpret_cast<Fn1>(vt[8])(eu);           // GetGameCoreLock
-}
-```
-
-> 绝大多数场景 **不需要**手动取锁——`TriggerGameEvent`、`PushLuaMethods` 等高层接口已在内部处理。仅在你直接调用引擎内部函数时才需要。
+> **关于 GameCore 锁**：`TriggerGameEvent`、`PushLuaMethods` 这类需要进 Lua 的高层接口，
+> 锁的取放由 Loader 在内部完成，插件侧**没有也不需要**对应接口，绝大多数场景不必手动取锁。
+> 插件若直接调用引擎内部函数，锁要自行负责，且**必须在 SEH 保护下做**——释放之后若取回时抛异常，
+> 锁会永久不取回，游戏直接卡死。
 
 ### A.9 兼容性检查
 
@@ -862,4 +991,4 @@ void OnMessage(const char* topic, const void* data, size_t len) {
 
 **部署**：把编译出的 `MyGameplayPlugin.dll` 放进 `MyMod/Binaries/Win64/Plugins/GameCore/`。
 
-**验证**：进对局后打开 FireTuner 执行 `print(MyMod.Version())`，应输出 `MyMod v1.0`；同时 `Civ6DllLoader_Runtime.log` 中应出现 `MyMod: loaded`。
+**验证**：进对局后打开 FireTuner 执行 `print(MyMod.Version())`，应输出 `MyMod v1.0`；同时 `Civ6DllLoader_Loader.log` 中应出现 `MyMod: loaded`。
