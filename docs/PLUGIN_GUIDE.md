@@ -142,7 +142,7 @@ extern "C" __declspec(dllexport) void OnUnload();
 > 1. `HookAPI.h` 根据该宏在编译期自动生成 `Civ6PluginKind` 导出函数（返回类别 1 或 2，以及 API 版本）。
 > 2. Loader 在调用 `OnLoad` 之前，会读取该导出并核对插件所处的物理目录（`Global` 或 `GameCore`）。若宏声明与所在目录不一致，Loader 会在执行任何插件代码前**直接拒载**。
 > 3. 若未定义宏，包含 `HookAPI.h` 将直接触发 `#error` 阻止编译。
-> 4. 若为 Global 插件（定义了 `CIV6_PLUGIN_GLOBAL`），GameCore 专属接口（如 `RegisterScriptGlobals`、`PushLuaMethods`、`EditPlayer`、`RegisterGameEvent` 等）将在编译期被宏重命名拦截，调用时直接报编译错误，防止跨生命周期非法调用。
+> 4. 若为 Global 插件（定义了 `CIV6_PLUGIN_GLOBAL`），GameCore 专属接口（如 `RegisterScriptGlobals`、`PushLuaMethods`、`GetPlayer`、`RegisterGameEvent` 等）将在编译期被宏重命名拦截，调用时直接报编译错误，防止跨生命周期非法调用。
 
 ---
 
@@ -531,7 +531,7 @@ end)
   ```
 - **获取玩家指针**：
   ```cpp
-  void* pPlayer = api->EditPlayer(0); // 获取 0 号玩家指针（GameCore 专属）
+  void* pPlayer = api->GetPlayer(0); // 获取 0 号玩家指针（GameCore 专属）
   ```
 
 ---
@@ -667,7 +667,7 @@ UiInject: context 已加载 (FrontEndUI_MyMod)
 ### Q：编译报错 `#error "CIV6: 必须声明插件类别"` 怎么解决？
 **A：必须在工程预处理器中定义类别宏。** 在工程属性「C/C++ -> 预处理器 -> 预处理器定义」中添加 `CIV6_PLUGIN_GLOBAL`（全局插件）或 `CIV6_PLUGIN_GAMECORE`（对局插件）。
 
-### Q：为什么调用 `RegisterScriptGlobals` 或 `EditPlayer` 编译报错提示不是 HookAPI 成员？
+### Q：为什么调用 `RegisterScriptGlobals` 或 `GetPlayer` 编译报错提示不是 HookAPI 成员？
 **A：触发了编译期门禁保护。** 你的插件定义了 `CIV6_PLUGIN_GLOBAL`，而这些接口属于 GameCore 对局专属接口（生命周期受对局创建/销毁限制，常驻插件调用会发生空指针或非法访问）。如果确实是玩法逻辑插件，应转为 GameCore 插件（定义 `CIV6_PLUGIN_GAMECORE` 并放入 `Plugins/GameCore/` 目录）。
 
 ### Q：游戏更新后插件需要重新编译发布吗？
@@ -912,7 +912,7 @@ api->LocDestroy(loc);
 
 | 接口 | 签名 | 说明 |
 |------|------|------|
-| `EditPlayer` ✱ | `void*(int playerId)` | 取玩家对象指针。对局开始前返回 nullptr。 |
+| `GetPlayer` ✱ | `void*(int playerId)` | 取玩家对象指针。对局开始前返回 nullptr。 |
 | `MakeHash` | `uint32_t(const char*)` | 与引擎 `GameCore::Utilities::MakeHash` 逐位一致的 CRC32。**纯本地计算**，对局前/重载后都能用。 |
 | `Log` | `void(const char* fmt, ...)` | 写 `Civ6DllLoader_Loader.log`。 |
 
