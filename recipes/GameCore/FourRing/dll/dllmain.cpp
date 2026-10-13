@@ -14,8 +14,13 @@ static __int64 __fastcall Hook_ComputePlotsFromRadius(int /*radius*/) {
     return kPlotsForRing4;
 }
 
-extern "C" __declspec(dllexport) void OnLoad(HookAPI* api) {
-    if (!HookAPI_IsCompatible(api)) {
+extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
+    if (!HookContext_IsCompatible(ctx)) {
+        return;
+    }
+    // 按名字解析出本模块私有的接口表；查不到的入口为 nullptr。
+    HookAPI* api = HookAPI_Resolve(ctx);
+    if (!HookAPI_RequireAll(api, &HookAPI::ResolveByName, &HookAPI::InstallHook, &HookAPI::Log)) {
         return;
     }
     g_api = api;

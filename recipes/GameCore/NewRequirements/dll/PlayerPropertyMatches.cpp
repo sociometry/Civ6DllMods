@@ -973,7 +973,9 @@ bool PushFactory(HookAPI* api) {
 }  // namespace
 
 bool NewRequirements_RegisterPlayerProperty(HookAPI* api) {
-    if (!HookAPI_IsCompatible(api)) {
+    // api 是调用方 HookAPI_Resolve 出来的本模块私有表，非空即已解析。
+    // 兼容性与依赖项检查由 OnLoad 的 HookContext_IsCompatible + HookAPI_RequireAll 负责。
+    if (!api) {
         return false;
     }
     g_api = api;

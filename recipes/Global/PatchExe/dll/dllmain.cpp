@@ -12,8 +12,9 @@ static constexpr uint8_t kPatchedByte = 0x01;
 static HookAPI* g_api = nullptr;
 static void* g_target = nullptr;
 
-extern "C" __declspec(dllexport) void OnLoad(HookAPI* api) {
-    if (!HookAPI_IsCompatible(api)) return;
+extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
+    if (!HookContext_IsCompatible(ctx)) return;
+    HookAPI* api = HookAPI_Resolve(ctx);
     if (!api->Log || !api->IsImageLoaded || !api->ResolveByRva || !api->Patch || !api->Unpatch) return;
     if (g_target) {
         api->Log("PatchExe: already patched; keeping the original rollback record");

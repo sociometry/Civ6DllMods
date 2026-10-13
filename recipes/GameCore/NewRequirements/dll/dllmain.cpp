@@ -2,14 +2,18 @@
 #include "HookAPI.h"
 #include "NewRequirements.h"
 
-extern "C" __declspec(dllexport) void OnLoad(HookAPI* api) {
-    if (!HookAPI_IsCompatible(api)) {
+extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
+    if (!HookContext_IsCompatible(ctx)) {
+        return;
+    }
+    HookAPI* api = HookAPI_Resolve(ctx);
+    if (!HookAPI_RequireAll(api, &HookAPI::Log, &HookAPI::ResolveByName)) {
         return;
     }
     api->Log(
         "NewRequirements OnLoad HookAPI v%u structSize=%u ResolveByRvaEx=%u",
-        api->apiVersion,
-        api->structSize,
+        ctx->apiVersion,
+        ctx->structSize,
         static_cast<unsigned>(api->ResolveByRvaEx != nullptr));
 
     // Comment out either line to disable ONLY that requirement, then rebuild.

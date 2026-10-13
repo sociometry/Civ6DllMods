@@ -28,8 +28,9 @@ static __int64 __fastcall Hook_AddResource(int32_t* list) {
     return id;
 }
 
-extern "C" __declspec(dllexport) void OnLoad(HookAPI* api) {
-    if (!HookAPI_IsCompatible(api)) return;
+extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
+    if (!HookContext_IsCompatible(ctx)) return;
+    HookAPI* api = HookAPI_Resolve(ctx);
     if (!api->Log || !api->IsImageLoaded || !api->ResolveByRva || !api->InstallHook) return;
     if (g_installed) {
         api->Log("HookExe: already installed; keeping current hook and call count");

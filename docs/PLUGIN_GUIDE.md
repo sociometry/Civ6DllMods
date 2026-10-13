@@ -107,7 +107,7 @@ Loader 明确区分两类插件，两者具有截然不同的生命周期与调�
 #include "HookAPI.h"
 
 // 必须导出：插件初始化入口
-extern "C" __declspec(dllexport) void OnLoad(HookAPI* api);
+extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx);
 
 // 可选导出：跨插件消息接收
 extern "C" __declspec(dllexport) void OnMessage(const char* topic, const void* data, size_t len);
@@ -116,10 +116,44 @@ extern "C" __declspec(dllexport) void OnMessage(const char* topic, const void* d
 extern "C" __declspec(dllexport) void OnUnload();
 ```
 
+### 接口表的取得
+
+`OnLoad` 拿到的是 `HookContext*`，不是接口表。用两行把它换成你能直接调的表：
+
+```cpp
+static HookAPI* g_api = nullptr;   // 跨函数使用就存起来；只用一次也可以不存
+
+extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
+    if (!HookContext_IsCompatible(ctx)) return;      // ABI 防御
+
+    HookAPI* api = HookAPI_Resolve(ctx);             // 按名字解析出本模块的表
+    if (!HookAPI_RequireAll(api, &HookAPI::Log,      // 声明自己真正依赖的入口
+                            &HookAPI::ResolveByName)) {
+        return;                                      // 缺项：Loader 版本不匹配，直接退出
+    }
+    g_api = api;
+
+    // 之后照常调用
+    api->Log("my plugin loaded");
+    void* target = api->ResolveByName(kHookImageGameCoreXP2, "Some::Symbol");
+}
+```
+
+要点：
+
+- **`HookAPI_Resolve` 幂等**：内部是函数局部 `static`，首次调用把所有名字查一遍并填表，
+  之后再调直接返回同一个指针。同一插件的多个 `.cpp` 共享这一份（`inline` 函数 + COMDAT 合并），
+  所以每个文件里都可以放心调，不会各建一份表；
+- **`HookAPI_RequireAll` 只列你自己用到的入口**。`HookAPI_Resolve` 会把所有格子填满，
+  查不到的名字是 `nullptr`（绝不是野指针），但不检查就调用会空指针崩溃。
+  `RequireAll` 让你在 `OnLoad` 里发现缺项并干净退出，而不是在某个回调里炸掉；
+- 参数用成员指针（`&HookAPI::ResolveByName`）而不是字符串，所以名字拼错是**编译错误**、
+  IDE 能补全、重命名能跟随。
+
 ### 生命周期规则与 OnUnload
 
 1. **`OnLoad` 的幂等性要求**：
-   - 在 `OnLoad` 开头必须首先调用 `HookAPI_IsCompatible(api)` 进行 ABI 版本防御。
+   - 在 `OnLoad` 开头必须首先调用 `HookContext_IsCompatible(ctx)` 进行 ABI 版本防御。
    - Global 插件常驻进程，但其 `OnLoad` 仍应保证幂等性，不得假定其一生仅执行一次。
 2. **`OnUnload`（历史遗留，无需实现）**：
    - Loader 已经全自动接管了所有框架级资源的清理工作：卸载插件时会自动拔除 MinHook 钩子、撤销参数捕获订阅、注销消息总线与回调监听。
@@ -132,7 +166,7 @@ extern "C" __declspec(dllexport) void OnUnload();
 
 - **构建平台**：`x64`，配置建议使用 `Release`。
 - **运行库**：推荐使用静态链接 C/C++ 运行时库（`Multi-threaded /MT`），避免目标机器缺少 VC 运行库 DLL。
-- **头文件依赖**：工程中只需包含 `HookAPI.h`。
+- **头文件依赖**：工程中只需包含 `HookAPI.h`（自包含，不依赖其它头文件）。
 - **强制预处理宏定义（重要！）**：
   在工程属性「C/C++ -> 预处理器 -> 预处理器定义」中，**必须**显式声明以下两个宏之一（二选一）：
   - Global 插件添加：`CIV6_PLUGIN_GLOBAL`
@@ -142,7 +176,11 @@ extern "C" __declspec(dllexport) void OnUnload();
 > 1. `HookAPI.h` 根据该宏在编译期自动生成 `Civ6PluginKind` 导出函数（返回类别 1 或 2，以及 API 版本）。
 > 2. Loader 在调用 `OnLoad` 之前，会读取该导出并核对插件所处的物理目录（`Global` 或 `GameCore`）。若宏声明与所在目录不一致，Loader 会在执行任何插件代码前**直接拒载**。
 > 3. 若未定义宏，包含 `HookAPI.h` 将直接触发 `#error` 阻止编译。
-> 4. 若为 Global 插件（定义了 `CIV6_PLUGIN_GLOBAL`），GameCore 专属接口（如 `RegisterScriptGlobals`、`PushLuaMethods`、`GetPlayer`、`RegisterGameEvent` 等）将在编译期被宏重命名拦截，调用时直接报编译错误，防止跨生命周期非法调用。
+> 4. Global 插件下，GameCore 专属接口（`GetPlayer`、`RegisterGameEvent`、`TriggerGameEvent`、`RegisterScriptGlobals`、`RegisterScriptGlobalsForUI`、`PushLuaMethods`、`RegisterPushMethodsTarget`）**不会生成对应成员**，调用时报
+>    `error C2039: "GetPlayer": 不是 "HookAPI" 的成员`，防止跨生命周期非法调用。
+>
+> **版本不匹配时的表现**：`HookContext_IsCompatible(ctx)` 返回 0。它比较 `structSize` 与 `apiVersion` —— 若插件与 Loader 不是同一次构建（改了头文件却只重编了一边），
+> 两边对 `HookContext` 字段偏移的解释不同，该检查会在调用任何函数指针之前失败，因此不会出现错位调用。
 
 ---
 
@@ -371,12 +409,20 @@ if (!fn) {
 ### 6.1 基础入口与兼容性防御
 
 ```cpp
-extern "C" __declspec(dllexport) void OnLoad(HookAPI* api) {
+static HookAPI* g_api = nullptr;
+
+extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
     // 必须首先检查 ABI 兼容性
-    if (!HookAPI_IsCompatible(api)) {
-        if (api) api->Log("MyPlugin: Civ6DllLoader version is incompatible!");
+    if (!HookContext_IsCompatible(ctx)) {
         return;
     }
+
+    HookAPI* api = HookAPI_Resolve(ctx);
+    // 只列本插件真正依赖的入口；缺一个就说明 Loader 版本不匹配，干净退出
+    if (!HookAPI_RequireAll(api, &HookAPI::Log)) {
+        return;
+    }
+    g_api = api;
 
     api->Log("MyPlugin: OnLoad successfully initialized.");
 }
@@ -689,7 +735,8 @@ UiInject: context 已加载 (FrontEndUI_MyMod)
 
 ## 附录 A：HookAPI 接口全表
 
-`HookAPI` 是一个**只读**函数指针表（写在 `.rdata`，写入会当场崩溃）。以下按用途分组列出全部 77 个入口。
+`HookAPI` 是插件侧的函数指针表，由 `HookAPI_Resolve(ctx)` 在 `OnLoad` 里按名字填好，
+每格要么是有效函数地址、要么是 `nullptr`。以下按用途分组列出全部 77 个入口。
 
 **通用约定**：
 - 所有 `void* L` 参数都是 Lua 状态指针，**必须**是 `GetMainLuaState()` 的返回值或回调（`ScriptGlobalsFn` / `GameEventPushFn` / `LuaMethodFunc`）传入的那个 `L`；传 `nullptr` 会被拒绝并记日志。
@@ -926,14 +973,21 @@ api->Log("hash of quest = 0x%08X", h);
 > 插件若直接调用引擎内部函数，锁要自行负责，且**必须在 SEH 保护下做**——释放之后若取回时抛异常，
 > 锁会永久不取回，游戏直接卡死。
 
-### A.9 兼容性检查
+### A.9 初始化与兼容性检查
 
 ```cpp
-static inline int HookAPI_IsCompatible(const HookAPI* api);
+static inline int      HookContext_IsCompatible(const HookContext* ctx);
+inline        HookAPI* HookAPI_Resolve(const HookContext* ctx);
+
+template <typename... M>
+inline bool HookAPI_RequireAll(const HookAPI* api, M... members);
 ```
 
-| 头文件内的模板工具 | 说明 |
+| 头文件内的辅助工具 | 说明 |
 |--------------------|------|
+| `HookContext_IsCompatible(ctx)` | 检查 Loader 与插件是否同一次构建（比较 `structSize` + `apiVersion`）。`OnLoad` 开头调一次，返回 0 就退出。 |
+| `HookAPI_Resolve(ctx)` | 按名字把 77 个入口解析进本模块私有的表，返回其指针。幂等；同一插件的多个 `.cpp` 共享同一份。 |
+| `HookAPI_RequireAll(api, &HookAPI::A, &HookAPI::B)` | 检查指定入口是否都解析成功。只列自己用到的；缺项返回 false，用于优雅退出。 |
 | `ResolveByName<T>(api, image, name)` | `ResolveByName` 的返回类型转换封装。 |
 | `ResolveByRva<T>(api, image, rva, span)` | 同上。 |
 | `ResolveByRvaEx<T>(api, image, rva, section, span)` | 同上。 |
@@ -971,9 +1025,12 @@ static void OnInitGlobals(void* L) {
     g_api->LuaPop(L, 1);
 }
 
-extern "C" __declspec(dllexport) void OnLoad(HookAPI* api) {
-    if (!HookAPI_IsCompatible(api)) {
-        if (api) api->Log("MyMod: loader too old, please update");
+extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
+    if (!HookContext_IsCompatible(ctx)) {
+        return;
+    }
+    HookAPI* api = HookAPI_Resolve(ctx);
+    if (!HookAPI_RequireAll(api, &HookAPI::Log, &HookAPI::RegisterScriptGlobals)) {
         return;
     }
     g_api = api;
