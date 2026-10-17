@@ -200,7 +200,7 @@ extern "C" __declspec(dllexport) int OnLoadEx(HookContext* ctx) {
 
 Loader 内置了基于 PE 展开表（`.pdata`）的跨版本对齐机制（`PdataMatch`），符号库覆盖 **ExeDx11、ExeDx12 与 GameCoreXP2**。`HookAPI.h` 在此基础上提供了一组寻址封装，让插件不必自己处理版本差异。
 
-本章按这个顺序读最省事：**§5.2 `HookInfo`** 是核心写法，直接用它就能覆盖绝大多数需求（§5.1 的 AOB 语法是它的兜底手段，遇到多命中时再回来查）。§5.3–§5.6 针对特定目标类型——exe 双版本、全局数据槽、虚表、无法用符号定位的内部对象。**§5.7 是可选的可用性判断**，不读也不影响写插件。
+本章按这个顺序读最省事：**§5.2 `HookInfo`** 是核心写法，直接用它就能覆盖绝大多数需求（§5.1 的 AOB 语法是它的兜底手段，遇到多命中时再回来查）。§5.3–§5.6 针对特定目标类型——exe 双版本、全局数据槽、虚表、无法用符号定位的内部对象。**§5.7 是可选的可用性判断**，不读也不影响写插件；**§5.8 是查符号名的工具**（手上只有 RVA 时先用它）。
 
 ### 5.1 AOB 特征码语法
 
@@ -415,6 +415,52 @@ if (!fn) {
 > 这两个接口只给判断，不改变解析行为——它们不能替代 `HookInfo` 的多途径定位。**单点能否解析，始终以 `ResolveBy*` 的返回值为准**：整体匹配率再高也可能恰好漏掉你要的那一个函数。
 >
 > `image` 取 `kHookImageExeDx11` / `kHookImageExeDx12` / `kHookImageGameCoreXP2`，各映像状态互相独立（例如 exe 可能 `Identical` 而 GameCore 是 `CrossVersion`）。
+
+### 5.8 把 RVA 反查成符号名：`tools/rva_to_symbol`
+
+写插件最费时的一步往往是"这个 0x5BDAC0 到底是哪个函数"。仓库自带 `tools/rva_to_symbol.exe`（单文件，符号表在编译期嵌进去，不需要 Rust 环境）：
+
+```text
+tools\rva_to_symbol.exe -gamecore 0x5BDAC0
+tools\rva_to_symbol.exe -dx11 0x4D0D70
+tools\rva_to_symbol.exe -dx12 0x37AB0 0x37DE0
+tools\rva_to_symbol.exe --list
+```
+
+| 选择符 | 映像 | 对应 `HookImageId` |
+|---|---|---|
+| `-gamecore` | `GameCore_XP2_FinalRelease.dll` | `kHookImageGameCoreXP2` |
+| `-dx11` | `CivilizationVI.exe` | `kHookImageExeDx11` |
+| `-dx12` | `CivilizationVI_DX12.exe` | `kHookImageExeDx12` |
+
+**输入是 RVA，不是绝对地址**。IDA/x64dbg 里拿到的是绝对地址时要先减映像基址 `0x140000000`：
+`0x1404D0D70 - 0x140000000 = 0x4D0D70`。三个映像的 RVA 空间互不相通，所以必须显式给选择符——
+工具不会给你一个"默认映像"。
+
+输出固定四栏：`kind` / `demangled` / `mangled` / `vtable_xrefs`，也可以用 `--demangled` 之类只取一栏；
+查不到打印 `0x...: not found`（退出码 1）。典型用法：
+
+```text
+# 只想知道名字，方便写 ResolveByName：
+tools\rva_to_symbol.exe -gamecore 0x5BDAC0 --demangled
+#   -> GameCore::Lua::Utility::RegisterScriptData
+
+# dx11 的 pRegister（引擎注册 Modding 脚本库的入口）：
+tools\rva_to_symbol.exe -dx11 0x4D0D70 --demangled
+#   -> AppLuaModdingLibrary::pRegister
+
+# 一次查多个 RVA：
+tools\rva_to_symbol.exe -dx12 0x37AB0 0x37DE0 --demangled
+```
+
+拿到符号名之后，按 §5.2 写成 `HookName("GameCore::…")`，跨版本就交给 `PdataMatch` 矫正，比把 RVA 写死稳得多。
+
+> 符号名来自 IDA 符号库，是**某一次分析**的快照，不是游戏官方导出。DX12 的 IDB 符号覆盖比 DX11
+> 稀，个别函数在 `-dx12` 下只会显示成 `sub_1404D15F0` 这种地址名，这时只能靠 AOB（§5.1）或
+> 双版本 `HookInfoExe`（§5.3）处理。
+>
+> 这个 exe 来自 Civ6DllLoader 仓库的 `tools/rva_to_symbol/`（源码、构建脚本与符号表生成流程都在那边），
+> 符号表在编译期嵌入；游戏更新后重新构建一次，把新的 exe 替换过来即可。
 
 ---
 
