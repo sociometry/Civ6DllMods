@@ -16,7 +16,7 @@
   → 挂钩 GameCore::LoadDLL
   → 引擎请求加载 GameCore 时，detour 自动重定向回官方原版 GameCore DLL（薄壳永不加载）
   → 接管 GameCore 生命周期（Phase B），自动扫描并加载各 Mod 的插件 DLL
-  → 主菜单建好后，把各 Mod 声明的 FrontEndUI_*.xml 挂进主菜单（无需插件 DLL）
+  → 主菜单建好后，把各 Mod 目录里的 FrontEndUI_*.xml 挂进主菜单（无需插件 DLL）
 
 [首次引导（未安装 version.dll）]
 玩家安装带薄壳的 Mod 进入游戏
@@ -34,7 +34,7 @@
 | `Civ6DllLoader.runtime.dll` | Loader 发行包（运行时核心） | 原样放进 Mod 的 `Binaries/Win64/`，多 Mod 共存时自动按版本号最高者竞选启动 |
 | `Plugins/Global/*.dll` 或 `Plugins/GameCore/*.dll` | **自己编译** | 你的插件 DLL，导出 `OnLoad`（可选导出 `OnMessage`，无需实现 `OnUnload`） |
 | `HookAPI.h` | Loader 发行包 | 插件工程唯一需要包含的 C/C++ 接口头文件 |
-| `UI/FrontEnd/FrontEndUI_*.xml` + `.lua` | **自己写** | 主菜单界面，**不需要编译**；在 `.modinfo` 里登记即可（见 §7） |
+| `UI/FrontEnd/FrontEndUI_*.xml` + `.lua` | **自己写** | 主菜单界面，**不需要编译**；放进 Mod 目录即可，不必登记（见 §7） |
 
 ---
 
@@ -106,7 +106,10 @@ Loader 明确区分两类插件，两者具有截然不同的生命周期与调�
 ```cpp
 #include "HookAPI.h"
 
-// 必须导出：插件初始化入口
+// 必须导出其一：插件初始化入口。推荐 OnLoadEx —— 它能回报"初始化失败"
+extern "C" __declspec(dllexport) int OnLoadEx(HookContext* ctx);   // 返回 0 = 初始化失败
+
+// 旧协议（仍受支持）：返回 void，只能靠"没崩"算成功，无法回报失败
 extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx);
 
 // 可选导出：跨插件消息接收
@@ -123,19 +126,20 @@ extern "C" __declspec(dllexport) void OnUnload();
 ```cpp
 static HookAPI* g_api = nullptr;   // 跨函数使用就存起来；只用一次也可以不存
 
-extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
-    if (!HookContext_IsCompatible(ctx)) return;      // ABI 防御
+extern "C" __declspec(dllexport) int OnLoadEx(HookContext* ctx) {
+    if (!HookContext_IsCompatible(ctx)) return 0;    // ABI 防御
 
     HookAPI* api = HookAPI_Resolve(ctx);             // 按名字解析出本模块的表
     if (!HookAPI_RequireAll(api, &HookAPI::Log,      // 声明自己真正依赖的入口
                             &HookAPI::ResolveByName)) {
-        return;                                      // 缺项：Loader 版本不匹配，直接退出
+        return 0;                                    // 缺项：Loader 版本不匹配，拒绝加载
     }
     g_api = api;
 
     // 之后照常调用
     api->Log("my plugin loaded");
     void* target = api->ResolveByName(kHookImageGameCoreXP2, "Some::Symbol");
+    return 1;                                        // 初始化成功
 }
 ```
 
@@ -148,7 +152,11 @@ extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
   查不到的名字是 `nullptr`（绝不是野指针），但不检查就调用会空指针崩溃。
   `RequireAll` 让你在 `OnLoad` 里发现缺项并干净退出，而不是在某个回调里炸掉；
 - 参数用成员指针（`&HookAPI::ResolveByName`）而不是字符串，所以名字拼错是**编译错误**、
-  IDE 能补全、重命名能跟随。
+  IDE 能补全、重命名能跟随；
+- **用 `OnLoadEx` 返回 0 = 干净拒绝**：Loader 会回滚本次加载里已经登记的一切（钩子、捕获、
+  脚本全局、消息），**不激活、不注册 `OnMessage`**，并把该插件标记为不可用（本次进程内不再重试）。
+  旧协议 `OnLoad` 没有这个能力——它返回 `void`，Loader 只能把"没崩"当成功，因此缺接口时务必
+  改用 `OnLoadEx` 才能让加载真正失败。
 
 ### 生命周期规则与 OnUnload
 
@@ -176,7 +184,7 @@ extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
 > 1. `HookAPI.h` 根据该宏在编译期自动生成 `Civ6PluginKind` 导出函数（返回类别 1 或 2，以及 API 版本）。
 > 2. Loader 在调用 `OnLoad` 之前，会读取该导出并核对插件所处的物理目录（`Global` 或 `GameCore`）。若宏声明与所在目录不一致，Loader 会在执行任何插件代码前**直接拒载**。
 > 3. 若未定义宏，包含 `HookAPI.h` 将直接触发 `#error` 阻止编译。
-> 4. Global 插件下，GameCore 专属接口（`GetPlayer`、`RegisterGameEvent`、`TriggerGameEvent`、`RegisterScriptGlobals`、`RegisterScriptGlobalsForUI`、`PushLuaMethods`、`RegisterPushMethodsTarget`）**不会生成对应成员**，调用时报
+> 4. Global 插件下，GameCore 专属接口（`GetPlayer`、`RegisterGameEvent`、`TriggerGameEvent`、`RegisterGameCoreScriptForGamePlay`、`RegisterGameCoreScriptForUI`、`PushLuaMethods`、`RegisterPushMethodsTarget`）**不会生成对应成员**，调用时报
 >    `error C2039: "GetPlayer": 不是 "HookAPI" 的成员`，防止跨生命周期非法调用。
 >
 > **版本不匹配时的表现**：`HookContext_IsCompatible(ctx)` 返回 0。它比较 `structSize` 与 `apiVersion` —— 若插件与 Loader 不是同一次构建（改了头文件却只重编了一边），
@@ -358,6 +366,8 @@ Stub 做的是**无痕中转**：被挂钩函数看到的参数寄存器（`rcx`
 
 捕获写入发生在调用目标函数**之前**，所以 `*out` 里拿到的是**本次调用传入**的那个参数；provider 第一次被调用之前，它仍是你初始化的 `nullptr`。订阅是**追加式**的：同一地址可以挂多个插件的 `out`，后注册不会顶掉先注册，触发时统一写入。
 
+**提前撤销：`UnregisterGlobalCapture(providerAddress, out)`**。匹配条件是 (provider, out, 你的插件) 三者同时相同——别人的槽撤不掉，参数写错只会返回 `false` 并记日志。它**只摘订阅、不摘钩**：站点与 stub 永不释放，最后一个订阅移除后该地址立刻回到无捕获的快路径。插件卸载/隔离时 Loader 会按 owner 自动清掉剩余订阅，所以这是可选的提前释放手段（例如你只是在某个阶段需要那个指针）。
+
 > **与 `ResolveDataByAob`（§5.4）的分工**：后者解的是代码里 `mov reg, [rip+disp32]` 直接引用的全局槽，适合有固定指令引用它的单例；本节靠函数传参捕获，适合只在初始化时被传递、代码里没有固定引用点的对象。两者都不依赖结构体偏移。
 
 ### 5.7 可用性判断（可选）：`GetSymbolDbState`
@@ -516,9 +526,17 @@ api->PushLuaMethods("GameCore::Lua::IQuestsManager", s_methods, 1);
 ```
 之后在 Lua 脚本中即可直接调用：`Players[0]:GetQuestsManager():CustomMethod()`。
 
-### 6.6 注册脚本全局环境（RegisterScriptGlobals，GameCore 专属）
+### 6.6 注册脚本全局环境（三个入口，按作用域选）
 
-在 gameplay 或 UI 的 Lua 全局表 `_G` 中注入自定义模块：
+往 Lua 全局表 `_G` 里注入自定义模块。三个入口的差别只在**挂到哪个 Lua 环境**、以及**什么时候跑**：
+
+| 入口 | 类别 | 挂到哪 | 生命周期 |
+|---|---|---|---|
+| `RegisterGameCoreScriptForGamePlay` | GameCore 专属 | GameCore 的 gameplay Lua | 每局重建，随对局卸载失效 |
+| `RegisterGameCoreScriptForUI` | GameCore 专属 | GameCore 的 UI 脚本 Lua | 同上（与 gameplay 不是同一个 state） |
+| `RegisterGlobalScript` | 两类都能用 | exe 的**引擎主 Lua state**（`GetMainLuaState`） | 进程级，换局不失效 |
+
+回调签名统一是 `void (*)(void* L)`，`L` 就是对应的 `lua_State*`，可以直接用 Lua C API：
 
 ```cpp
 static int __fastcall lDoSomething(void* L) {
@@ -532,11 +550,22 @@ static void InitGlobals(void* L) {
     api->LuaPop(L, 1);
 }
 
-// 注册到 gameplay Lua 初始流程：
-api->RegisterScriptGlobals(&InitGlobals);
-// 注册到 UI/Cache Lua 初始流程：
-api->RegisterScriptGlobalsForUI(&InitGlobals);
+// 对局内脚本用（GameCore 插件）：
+api->RegisterGameCoreScriptForGamePlay(&InitGlobals);
+// GameCore 侧 UI 脚本用（GameCore 插件）：
+api->RegisterGameCoreScriptForUI(&InitGlobals);
+// 进程级全局用（Global 插件也可以）：主菜单 UI 加载时统一跑一次
+api->RegisterGlobalScript(&InitGlobals);
 ```
+
+`RegisterGlobalScript` 的几个要点：
+
+- **执行时机**：引擎把 `Modding` 脚本库注册进主 state 时先跑一次（这是最贴近"脚本环境刚建好"
+  的时刻）；主菜单 UI 加载完成时再补跑一次，早于各 Mod 自己 `FrontEndUI_*.lua` 的加载；GameCore
+  插件在对局里才加载，它们的登记会在对局加载完成时补跑；
+- **只跑一次**：同一个主 state 上，每个登记项只执行一次；state 被重建（指针变化）后会重跑；
+- **在游戏线程执行**：回调里可以直接调 Lua C API，不需要自己切线程；
+- 插件卸载/隔离时 Loader 按 owner 自动摘除登记。
 
 ### 6.7 游戏自定义事件总线（GameEvent）
 
@@ -590,7 +619,7 @@ end)
 
 前面六章讲的都是**插件 DLL**。这一章不一样：**给主菜单加一块自己的界面**，只要写文件，不用编译 DLL、不用 `OnLoad`、也不用管 `CIV6_PLUGIN_*` 宏。
 
-你要做的事只有两件：写一对同名的 `FrontEndUI_*.xml` + `.lua`，然后在 `.modinfo` 里声明。剩下的由 Loader 完成——它会在主菜单建好之后把你的界面挂进去，用不着你写一行 C++。
+你要做的事只有一件：写一对同名的 `FrontEndUI_*.xml` + `.lua`，**放进 Mod 目录里就行**（不必在 `.modinfo` 里登记）。剩下的由 Loader 完成——它按文件名在你的 Mod 目录树里找，主菜单建好后把界面挂进去，用不着你写一行 C++。
 
 > 适用场景：**主菜单**（FrontEnd）上的面板、按钮、弹窗。对局内的界面（InGame）不走这条路，仍要用原生
 > `AddUserInterfaces` + `ReplaceUIScript` 声明。
@@ -599,7 +628,7 @@ end)
 
 ```text
 MyAwesomeMod/
-  MyAwesomeMod.modinfo          ← 声明（见 7.2），UTF-8 无 BOM
+  MyAwesomeMod.modinfo          ← 只用于 Mod 自身的启用/元数据，Loader 不读它
   UI/FrontEnd/
     FrontEndUI_MyMod.xml        ← 界面定义
     FrontEndUI_MyMod.lua        ← 逻辑，与 xml 同名同目录
@@ -613,70 +642,31 @@ MyAwesomeMod/
 | 要求 | 说明 |
 |---|---|
 | 前缀必须是 `FrontEndUI_` | 这是 Loader 的识别标志，大小写不敏感 |
-| 扩展名必须是 `.xml` | 只声明 xml；同名的 `.lua` 会自动一起加载，不用声明 |
+| 扩展名必须是 `.xml` | 只找 xml；同名的 `.lua` 会自动一起加载 |
 | 前缀后面至少还有一个字符 | `FrontEndUI_.xml` 不合法 |
-| 必须写相对路径 | 不能以 `/` 或 `\` 开头，也不能带盘符（`:`） |
-| 不能用 `.` 或 `..` 做目录名 | 界面文件必须待在你自己的 Mod 目录里 |
+| 必须放在 Mod 目录里 | Loader 只扫已启用 Mod 的目录树，递归最多 8 层 |
 
-`.xml` 与 `.lua` 必须**同名同目录**。两个 Mod 声明了同名文件时只加载一份。
+`.xml` 与 `.lua` 必须**同名同目录**。放在 Mod 里哪个子目录都行——Loader 取的是**相对 Mod 根的路径**（分隔符统一成 `/`、去掉 `.xml`）交给游戏加载，所以 `UI/FrontEnd/FrontEndUI_MyMod.xml` 与 `FrontEndUI_MyMod.xml`（直接放 Mod 根）都能用。两个 Mod 里相对路径相同的文件只加载一份。
 
-### 7.2 在 .modinfo 里声明
+### 7.2 不需要在 .modinfo 里声明
 
-在 `<FrontEndActions>` 下加一个 `<ImportFiles>`，列出 `.xml`：
+Loader **不读** `<FrontEndActions><ImportFiles>`。把 `FrontEndUI_*.xml` 放进 Mod 目录即可，写在 `.modinfo` 里的 `ImportFiles` 对 Loader 没有任何影响。
 
-```xml
-<FrontEndActions>
-    <UpdateDatabase id="Config">
-        <Properties><LoadOrder>100</LoadOrder></Properties>
-        <File>Data/Config.sql</File>
-    </UpdateDatabase>
-
-    <ImportFiles id="FrontEndUI">
-        <File>UI/FrontEnd/FrontEndUI_MyMod.xml</File>
-    </ImportFiles>
-</FrontEndActions>
-```
-
-三个元素必须**一层套一层**，中间不能加别的元素：`ImportFiles` 直接放在 `FrontEndActions` 里，`File` 直接放在 `ImportFiles` 里。多包一层就找不到了：
-
-```xml
-<!-- ✗ 找不到：ImportFiles 外面套了 <Group> -->
-<FrontEndActions>
-    <Group><ImportFiles><File>UI/FrontEnd/FrontEndUI_MyMod.xml</File></ImportFiles></Group>
-</FrontEndActions>
-
-<!-- ✗ 也找不到：File 外面套了 <Items> -->
-<FrontEndActions>
-    <ImportFiles><Items><File>UI/FrontEnd/FrontEndUI_MyMod.xml</File></Items></ImportFiles>
-</FrontEndActions>
-```
-
-`<File>` 里写完整路径（含目录），扩展名写 `.xml`。同目录下的 `.lua` 会自动跟着加载。
+这样做的副作用只有一个：**同一个 Mod 目录里凡是叫 `FrontEndUI_*.xml` 的文件都会被加载**。不要拿这个前缀给别的 xml 起名。
 
 ### 7.3 不支持条件加载
 
-**这条路注入的界面一定会加载，不能加条件。** 如果你给 `<ImportFiles>` 加了 `criteria` 属性、或者在里面写了 `<Criteria>` 元素，结果不是"满足条件才加载"，而是**这块里声明的 `<File>` 全都不加载**：
-
-```xml
-<!-- ✗ 结果是这个界面完全不加载，不是"满足条件才加载" -->
-<ImportFiles id="FrontEndUI" criteria="MyCriteria">
-    <File>UI/FrontEnd/FrontEndUI_MyMod.xml</File>
-</ImportFiles>
-```
-
-（Loader 判断 `<Criteria>` 是按它在 XML 里出现的**先后顺序**记的，所以写在 `<File>` 后面的 `<Criteria>` 拦不住前面的 `<File>`。这个顺序和 Civ6 原生 `.modinfo` 的直觉相反，但结论一样：**别在这里写条件**。）
+**这条路注入的界面一定会加载，不能加条件。** Loader 只看文件名，`.modinfo` 里的任何 `criteria` 都不参与这个判断。
 
 界面若确实需要按条件出现，两条路：
 
 - 让界面**总是注入**，在 `.lua` 里自己判断该不该显示（`ContextPtr:SetHide(true)`）；
 - 改用对局内的原生 UI 机制（`AddUserInterfaces` + `ReplaceUIScript`），那条路支持 `criteria`。
 
-### 7.4 .modinfo 本身的几条要求
-这几条不满足，整个 Mod 的界面都不会注入：
+### 7.4 Mod 的状态要求
 
-- Mod 必须**已启用**（游戏里灰掉的不算）；
-- 一个 Mod 目录里**只能有一个** `.modinfo`，有两个会被整个跳过（日志有记录）；
-- `.modinfo` 必须是 **UTF-8**（带 BOM 可以，会自动处理；UTF-16 不行），且不超过 256 KB。
+- Mod 必须**已启用**（游戏里勾掉的不算）：Loader 只扫 `Mods.sqlite` 里登记为启用的那些 mod 目录；
+- Mod 目录本身必须可读；扫描遇到无权限的子目录会跳过，不会中断其它 Mod 的加载。
 
 ### 7.5 出问题时看日志
 
@@ -691,14 +681,14 @@ UiInject: context 已加载 (FrontEndUI_MyMod)
 
 | 日志情况 | 问题在哪 |
 |---|---|
-| 连 `发现 N 个 Mod UI` 都没有 | `.modinfo` 声明没读进来——检查 §7.2 的三层嵌套、§7.4 的几条要求 |
-| 有 `发现 N 个`，但没有你自己那个文件名 | 文件名或路径不合规——对照 §7.1 的表 |
+| 没有 `发现 N 个 Mod UI` | Mod 没被 `Mods.sqlite` 判为启用（§7.4），或扫描阶段整体出错（日志里有原因） |
+| 有 `发现 N 个`，但没有你自己那个文件名 | 文件名前缀/扩展名不合规，或放到了未启用的 Mod 目录里——对照 §7.1 的表 |
 | 有 `context 已加载 (你的文件名)`，界面却不显示 | 问题在界面自己（XML 布局或 Lua 没显示它），与 Loader 无关 |
 
 ### 7.6 注意
 
 - **只覆盖主菜单**。对局内界面不在此列（见 §7 开头）。
-- **无条件加载**（见 7.3）。
+- **无条件加载**（见 7.3）；`.modinfo` 不需要写 `ImportFiles`（见 7.2）。
 - **界面会随主菜单重建而重建**。极少数情况下这一次不会重注，界面要等下一次主菜单重建才回来；重启游戏必定恢复。
 
 ---
@@ -717,7 +707,7 @@ UiInject: context 已加载 (FrontEndUI_MyMod)
 ### Q：编译报错 `#error "CIV6: 必须声明插件类别"` 怎么解决？
 **A：必须在工程预处理器中定义类别宏。** 在工程属性「C/C++ -> 预处理器 -> 预处理器定义」中添加 `CIV6_PLUGIN_GLOBAL`（全局插件）或 `CIV6_PLUGIN_GAMECORE`（对局插件）。
 
-### Q：为什么调用 `RegisterScriptGlobals` 或 `GetPlayer` 编译报错提示不是 HookAPI 成员？
+### Q：为什么调用 `RegisterGameCoreScriptForGamePlay` 或 `GetPlayer` 编译报错提示不是 HookAPI 成员？
 **A：触发了编译期门禁保护。** 你的插件定义了 `CIV6_PLUGIN_GLOBAL`，而这些接口属于 GameCore 对局专属接口（生命周期受对局创建/销毁限制，常驻插件调用会发生空指针或非法访问）。如果确实是玩法逻辑插件，应转为 GameCore 插件（定义 `CIV6_PLUGIN_GAMECORE` 并放入 `Plugins/GameCore/` 目录）。
 
 ### Q：游戏更新后插件需要重新编译发布吗？
@@ -740,7 +730,7 @@ UiInject: context 已加载 (FrontEndUI_MyMod)
 ## 附录 A：HookAPI 接口全表
 
 `HookAPI` 是插件侧的函数指针表，由 `HookAPI_Resolve(ctx)` 在 `OnLoad` 里按名字填好，
-每格要么是有效函数地址、要么是 `nullptr`。以下按用途分组列出全部 77 个入口。
+每格要么是有效函数地址、要么是 `nullptr`。以下按用途分组列出全部 79 个入口。
 
 **通用约定**：
 - 所有 `void* L` 参数都是 Lua 状态指针，**必须**是 `GetMainLuaState()` 的返回值或回调（`ScriptGlobalsFn` / `GameEventPushFn` / `LuaMethodFunc`）传入的那个 `L`；传 `nullptr` 会被拒绝并记日志。
@@ -778,6 +768,7 @@ if (!fn) { api->Log("Foo::Bar not found; feature disabled"); return; }
 | `Patch` | `bool(void* target, const void* bytes, size_t len)` | 原始字节写入，用于修改指令本身。同一 `target` 同插件只能打一次；已被挂钩的点位会被拒绝。见 §6.3。 |
 | `Unpatch` | `bool(void* target)` | 还原你自己那一层补丁。**慎用**：只能撤栈顶那层，别当卸载清理用，见 §6.3。 |
 | `RegisterGlobalCapture` | `bool(void* providerAddress, uint32_t paramIndex, void** out)` | 拦截 `providerAddress` 的第 `paramIndex` 个**整数**寄存器参数（0–3 对应 rcx/rdx/r8/r9；浮点参数走 xmm，抓不到）写入 `*out`。同一地址可多插件叠加订阅。获取未导出全局对象的标准手段，见 §5.6。 |
+| `UnregisterGlobalCapture` | `bool(void* providerAddress, void** out)` | 撤销本插件先前在该 provider 上的一个捕获订阅（三者匹配）。只摘订阅、不摘钩；最后一个订阅移除后回到快路径。见 §5.6。 |
 
 ```cpp
 // InstallHook 的常用模板（注意 detour 必须与目标函数调用约定一致）：
@@ -869,8 +860,9 @@ const int rc = api->LuaCPcall(L, &MyCallback, nullptr);
 | `LuaNewGlobalTable` | `void(void* L, const char* name, int narr, int nrec)` | 创建全局表并留在栈顶。`narr`/`nrec` 为数组/哈希预分配提示。 |
 | `LuaPushCFunctionField` | `void(void* L, int tableIndex, const char* field, void* fn, const char* internalName)` | 往表里挂一个 C 函数字段。`internalName` 是引擎侧调试用的名字。 |
 | `LuaPushNamedCClosure` | `void(void* L, void* fn, int nup, const char* name, int narr)` | 压入带名字的 C 闭包。 |
-| `RegisterScriptGlobals` ✱ | `void(ScriptGlobalsFn)` | 注册 gameplay Lua 构建完成时的回调。 |
-| `RegisterScriptGlobalsForUI` ✱ | `void(ScriptGlobalsFn)` | 同上，但用于 UI/Cache Lua。 |
+| `RegisterGameCoreScriptForGamePlay` ✱ | `void(ScriptGlobalsFn)` | 注册 GameCore gameplay Lua 构建完成时的回调。 |
+| `RegisterGameCoreScriptForUI` ✱ | `void(ScriptGlobalsFn)` | 同上，但用于 GameCore 的 UI 脚本 Lua。 |
+| `RegisterGlobalScript` | `void(ScriptGlobalsFn)` | 注册到 exe 的引擎主 Lua state（进程级，换局不失效）。Global 与 GameCore 插件都能用，见 §6.6。 |
 | `PushLuaMethods` ✱ | `HookApiPushMethodsResult(const char* name, const LuaMethodInfo*, uint32_t count)` | 给已有 C++ Lua 对象挂方法，见 §6.5。 |
 | `RegisterPushMethodsTarget` ✱ | `int(const char* name, int sigType, const char* pushMethodsSymbol)` | 登记新的 PushMethods 目标对象，见下。 |
 
@@ -891,8 +883,8 @@ static void InitMyMod(void* L) {
     api->LuaPop(L, 1);
 }
 
-api->RegisterScriptGlobals(&InitMyMod);        // Lua: MyMod.Add(1, 2) -> 3
-api->RegisterScriptGlobalsForUI(&InitMyMod);   // UI Lua 里同样可用
+api->RegisterGameCoreScriptForGamePlay(&InitMyMod);   // Lua: MyMod.Add(1, 2) -> 3
+api->RegisterGameCoreScriptForUI(&InitMyMod);          // GameCore UI Lua 里同样可用
 ```
 
 ```cpp
@@ -990,7 +982,7 @@ inline bool HookAPI_RequireAll(const HookAPI* api, M... members);
 | 头文件内的辅助工具 | 说明 |
 |--------------------|------|
 | `HookContext_IsCompatible(ctx)` | 检查 Loader 与插件是否同一次构建（比较 `structSize` + `apiVersion`）。`OnLoad` 开头调一次，返回 0 就退出。 |
-| `HookAPI_Resolve(ctx)` | 按名字把 77 个入口解析进本模块私有的表，返回其指针。幂等；同一插件的多个 `.cpp` 共享同一份。 |
+| `HookAPI_Resolve(ctx)` | 按名字把 79 个入口解析进本模块私有的表，返回其指针。幂等；同一插件的多个 `.cpp` 共享同一份。 |
 | `HookAPI_RequireAll(api, &HookAPI::A, &HookAPI::B)` | 检查指定入口是否都解析成功。只列自己用到的；缺项返回 false，用于优雅退出。 |
 | `ResolveByName<T>(api, image, name)` | `ResolveByName` 的返回类型转换封装。 |
 | `ResolveByRva<T>(api, image, rva, span)` | 同上。 |
@@ -1034,13 +1026,13 @@ extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
         return;
     }
     HookAPI* api = HookAPI_Resolve(ctx);
-    if (!HookAPI_RequireAll(api, &HookAPI::Log, &HookAPI::RegisterScriptGlobals)) {
+    if (!HookAPI_RequireAll(api, &HookAPI::Log, &HookAPI::RegisterGameCoreScriptForGamePlay)) {
         return;
     }
     g_api = api;
     api->Log("MyMod: loaded");
 
-    api->RegisterScriptGlobals(&OnInitGlobals);
+    api->RegisterGameCoreScriptForGamePlay(&OnInitGlobals);
 }
 
 // 可选：接收其它插件的消息
