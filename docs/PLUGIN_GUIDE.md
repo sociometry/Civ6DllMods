@@ -340,7 +340,7 @@ constexpr HookInfo kMyVTableHook = HookVTable(
 
 不要用 `*(void**)((char*)ptr + 0x1A8)` 这类硬编码偏移逐层解引用：结构体一旦调整，偏移全部错位，且往往是静默破坏内存。
 
-正确做法是找到某个会接收该对象作为参数的函数，用 `RegisterGlobalCapture` 拦截寄存器传参（仅前 4 个寄存器参数 `rcx`, `rdx`, `r8`, `r9`，对应 paramIndex 0~3）：
+正确做法是找到某个会接收该对象作为参数的函数，用 `RegisterGlobalCapture` 拦截寄存器传参（仅前 4 个寄存器参数 `rcx`, `rdx`, `r8`, `r9`，对应 paramIndex 0~3）。这是**整数参数**：浮点/向量参数走 xmm0–3，不在可捕获范围内。
 
 ```cpp
 static void* g_pCapturedManager = nullptr;
@@ -353,6 +353,10 @@ if (providerFunc) {
 }
 ```
 Loader 用动态汇编（JIT Stub）在该函数入口截获该参数，写入你的指针槽。只要该函数的传参语义不变，即使对象内部结构如何变化，拿到的仍是正确指针。
+
+Stub 做的是**无痕中转**：被挂钩函数看到的参数寄存器（`rcx`/`rdx`/`r8`/`r9`）、`rsp` 与栈内容，都和没挂钩时一样。会被打掉的只有 volatile 寄存器——`rax`/`r10`/`r11`，以及存在捕获订阅时的 `xmm0`–`xmm5`（Stub 在慢路径里调了一次 C 函数）——按调用约定，函数入口本来就不该依赖它们的值。
+
+捕获写入发生在调用目标函数**之前**，所以 `*out` 里拿到的是**本次调用传入**的那个参数；provider 第一次被调用之前，它仍是你初始化的 `nullptr`。订阅是**追加式**的：同一地址可以挂多个插件的 `out`，后注册不会顶掉先注册，触发时统一写入。
 
 > **与 `ResolveDataByAob`（§5.4）的分工**：后者解的是代码里 `mov reg, [rip+disp32]` 直接引用的全局槽，适合有固定指令引用它的单例；本节靠函数传参捕获，适合只在初始化时被传递、代码里没有固定引用点的对象。两者都不依赖结构体偏移。
 
@@ -773,7 +777,7 @@ if (!fn) { api->Log("Foo::Bar not found; feature disabled"); return; }
 | `InstallHook` | `bool(void* target, void* detour, void** original)` | 安装 MinHook detour，原函数跳板写入 `*original`。插件卸载时 Loader 会自动摘钩。 |
 | `Patch` | `bool(void* target, const void* bytes, size_t len)` | 原始字节写入，用于修改指令本身。同一 `target` 同插件只能打一次；已被挂钩的点位会被拒绝。见 §6.3。 |
 | `Unpatch` | `bool(void* target)` | 还原你自己那一层补丁。**慎用**：只能撤栈顶那层，别当卸载清理用，见 §6.3。 |
-| `RegisterGlobalCapture` | `bool(void* providerAddress, uint32_t paramIndex, void** out)` | 拦截 `providerAddress` 的第 `paramIndex` 个寄存器参数（0–3 对应 rcx/rdx/r8/r9）写入 `*out`。获取未导出全局对象的标准手段，见 §5.6。 |
+| `RegisterGlobalCapture` | `bool(void* providerAddress, uint32_t paramIndex, void** out)` | 拦截 `providerAddress` 的第 `paramIndex` 个**整数**寄存器参数（0–3 对应 rcx/rdx/r8/r9；浮点参数走 xmm，抓不到）写入 `*out`。同一地址可多插件叠加订阅。获取未导出全局对象的标准手段，见 §5.6。 |
 
 ```cpp
 // InstallHook 的常用模板（注意 detour 必须与目标函数调用约定一致）：
