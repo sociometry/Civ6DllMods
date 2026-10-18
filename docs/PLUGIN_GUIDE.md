@@ -578,7 +578,7 @@ api->PushLuaMethods("GameCore::Lua::IQuestsManager", s_methods, 1);
 |---|---|---|---|
 | `RegisterGameCoreScriptForGamePlay` | GameCore 专属 | GameCore 的 gameplay Lua | 每局重建，随对局卸载失效 |
 | `RegisterGameCoreScriptForUI` | GameCore 专属 | GameCore 的 UI 脚本 Lua | 同上（与 gameplay 不是同一个 state） |
-| `RegisterGlobalScript` | 两类都能用 | exe 给**每一个**脚本环境建的 state（主菜单一代 + 对局一代） | 进程级；每代环境各跑一次 |
+| `RegisterGlobalScript` | 两类都能用 | exe 建的**每一个** Lua 环境（`FrontEnd` / `MainMenu` / `Options` / 对局 …） | 进程级；每个环境各跑一次 |
 
 回调签名统一是 `void (*)(void* L)`，`L` 就是对应的 `lua_State*`，可以直接用 Lua C API：
 
@@ -604,15 +604,19 @@ api->RegisterGlobalScript(&InitGlobals);
 
 `RegisterGlobalScript` 的几个要点：
 
-- **主菜单和对局都会跑**：Loader 钩的是引擎的 `AppLuaLocaleLibrary::pRegister` —— 本地化查询
-  库，每个脚本环境都要注册它，所以主菜单（FrontEnd）建环境时来一次、进对局（GameCore）建环境时
-  再来一次。你的回调因此两代都会执行，`L` 分别是那两代的 state；
-- **每个 state 只跑一次**：同一代里主菜单加载、对局加载这些时机撞上同一个 state 时不会重复执行；
-  换局后环境重建（新的 state）会再跑一次；
+- **每个 Lua 环境都会跑一次**：引擎给每个脚本环境单独建 `lua_State`（`FrontEnd`、`MainMenu`、
+  `Options`、`CreditsScreen`、对局的 gameplay …），各自有**独立的环境表**——挂在其中一个上的
+  接口，别的环境**访问不到**。所以 Loader 会对每个环境各调一次你的回调，`L` 就是那一个环境；
+- **每个 state 只跑一次**：同一个环境被重复触发（例如 UI 重建走同一条注册路径）不会重复执行；
+  换局或重建环境（新的 state）会再跑一次；
 - **在游戏线程执行**：回调里可以直接调 Lua C API，不需要自己切线程；
-- **`L` 是当次环境自己的 state**，不是你事先取好的某个固定指针。要在对局里生效的全局，就在
-  回调里直接往传入的 `L` 挂；如果只想在主菜单生效，可以先用 `GetMainLuaState()` 比一下；
+- **`L` 是当次环境自己的 state**，不是你事先取好的某个固定指针。想让接口在所有环境都可用，
+  就直接往传入的 `L` 挂——Loader 会保证每个环境都被调用到；只想在某类环境生效，可以在回调里
+  按需判断（例如比一下 `GetMainLuaState()`）；
 - 插件卸载/隔离时 Loader 按 owner 自动摘除登记。
+
+> 一个容易踩的点：**不要自己缓存第一次拿到的 `L` 然后反复往它上面写**。每个环境是独立的，
+> 往旧的 `L` 写只影响那一个环境，新环境里照样看不见。正确的做法就是每次回调都往当次的 `L` 挂。
 
 ### 6.7 游戏自定义事件总线（GameEvent）
 
@@ -777,7 +781,7 @@ UiInject: context 已加载 (FrontEndUI_MyMod)
 ## 附录 A：HookAPI 接口全表
 
 `HookAPI` 是插件侧的函数指针表，由 `HookAPI_Resolve(ctx)` 在 `OnLoad` 里按名字填好，
-每格要么是有效函数地址、要么是 `nullptr`。以下按用途分组列出全部 79 个入口。
+每格要么是有效函数地址、要么是 `nullptr`。以下按用途分组列出全部 80 个入口。
 
 **通用约定**：
 - 所有 `void* L` 参数都是 Lua 状态指针，**必须**是 `GetMainLuaState()` 的返回值或回调（`ScriptGlobalsFn` / `GameEventPushFn` / `LuaMethodFunc`）传入的那个 `L`；传 `nullptr` 会被拒绝并记日志。
@@ -873,8 +877,31 @@ api->SendMessageTo("OtherPlugin", "ping", "hi", 2);
 | 压栈 | `LuaPushInteger` `LuaPushNumber` `LuaPushBoolean` `LuaPushLightUserData` `LuaPushFString` |
 | 取栈 | `LuaToInteger` `LuaToNumber` `LuaToBoolean` `LuaToUserData` `LuaType` `LuaIsNumber` `LuaIsUserData` `LuaObjLen` |
 | 校验参数 | `LuaCheckInteger` `LuaCheckNumber` `LuaCheckLString` `LuaCheckTable` `LuaOptInteger` |
-| 表操作 | `LuaCreateTable` `LuaGetField` `LuaSetField` `LuaGetTable` `LuaSetTable` `LuaRawGetI` |
+| 表操作 | `LuaCreateTable` `LuaGetField` `LuaSetField` `LuaGetTable` `LuaSetTable` `LuaRawGetI` `LuaNext` |
 | 引用 | `LuaRef` `LuaUnref` |
+
+**遍历哈希表用 `LuaNext`**。`LuaObjLen` 只给序列部分的长度，拿不到字符串键。`LuaNext(L, index)`
+是 Lua 5.1 `lua_next` 的直接封装，栈契约也照搬：
+
+```cpp
+// 假设要遍历的表在 tblIndex（负数索引会随压栈变化，先转成绝对索引）
+const int t = tblIndex < 0 ? api->LuaGetTop(L) + tblIndex + 1 : tblIndex;
+api->LuaPushNil(L);                        // 首轮：key 位置压 nil
+while (api->LuaNext(L, t)) {               // 返回 1：栈上多了 key(-2) / value(-1)
+    // LuaType 返回标准 Lua 5.1 类型码：字符串 = 4、数字 = 3（HookAPI 不额外定义常量）
+    const char* k = api->LuaType(L, -2) == 4 ? api->LuaCheckLString(L, -2, nullptr) : nullptr;
+    const double  v = api->LuaToNumber(L, -1);
+    // ... 处理这一项 ...
+    api->LuaPop(L, 1);                     // 关键：自己弹掉 value，只留 key 给下一轮
+}
+```
+
+两个容易踩的点：
+
+- **value 必须自己弹**。`LuaNext` 只负责弹出 key、压入下一组 key/value；不弹 value 会让下一轮
+  从一个错的位置开始，遍历会跳项甚至死循环；
+- **遍历中不要改表**。Lua 5.1 对"遍历时新增/删除键"的行为未定义；要改就先收集到自己的容器里，
+  遍历结束后再写回。
 | 调用 | `LuaPcall` `LuaCPcall` `LuaDoString` |
 | 调试 | `LuaOpenDebug` `LuaSetHook` `LuaGetHook` `LuaGetHookMask` `LuaGetHookCount` |
 | 错误 | `LuaError`（抛出 Lua 错误，**不返回**） |
@@ -1029,7 +1056,7 @@ inline bool HookAPI_RequireAll(const HookAPI* api, M... members);
 | 头文件内的辅助工具 | 说明 |
 |--------------------|------|
 | `HookContext_IsCompatible(ctx)` | 检查 Loader 与插件是否同一次构建（比较 `structSize` + `apiVersion`）。`OnLoad` 开头调一次，返回 0 就 `return 0` 让加载失败。 |
-| `HookAPI_Resolve(ctx)` | 按名字把 79 个入口解析进本模块私有的表，返回其指针。幂等；同一插件的多个 `.cpp` 共享同一份。 |
+| `HookAPI_Resolve(ctx)` | 按名字把 80 个入口解析进本模块私有的表，返回其指针。幂等；同一插件的多个 `.cpp` 共享同一份。 |
 | `HookAPI_RequireAll(api, &HookAPI::A, &HookAPI::B)` | 检查指定入口是否都解析成功。只列自己用到的；缺项返回 false，用于优雅退出。 |
 | `ResolveByName<T>(api, image, name)` | `ResolveByName` 的返回类型转换封装。 |
 | `ResolveByRva<T>(api, image, rva, span)` | 同上。 |
