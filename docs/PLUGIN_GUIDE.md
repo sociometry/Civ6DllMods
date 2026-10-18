@@ -578,7 +578,7 @@ api->PushLuaMethods("GameCore::Lua::IQuestsManager", s_methods, 1);
 |---|---|---|---|
 | `RegisterGameCoreScriptForGamePlay` | GameCore 专属 | GameCore 的 gameplay Lua | 每局重建，随对局卸载失效 |
 | `RegisterGameCoreScriptForUI` | GameCore 专属 | GameCore 的 UI 脚本 Lua | 同上（与 gameplay 不是同一个 state） |
-| `RegisterGlobalScript` | 两类都能用 | exe 的**引擎主 Lua state**（`GetMainLuaState`） | 进程级，换局不失效 |
+| `RegisterGlobalScript` | 两类都能用 | exe 给**每一个**脚本环境建的 state（主菜单一代 + 对局一代） | 进程级；每代环境各跑一次 |
 
 回调签名统一是 `void (*)(void* L)`，`L` 就是对应的 `lua_State*`，可以直接用 Lua C API：
 
@@ -598,17 +598,20 @@ static void InitGlobals(void* L) {
 api->RegisterGameCoreScriptForGamePlay(&InitGlobals);
 // GameCore 侧 UI 脚本用（GameCore 插件）：
 api->RegisterGameCoreScriptForUI(&InitGlobals);
-// 进程级全局用（Global 插件也可以）：主菜单 UI 加载时统一跑一次
+// 进程级全局用（Global 插件也可以）：主菜单与对局两代环境各跑一次
 api->RegisterGlobalScript(&InitGlobals);
 ```
 
 `RegisterGlobalScript` 的几个要点：
 
-- **执行时机**：引擎把 `Modding` 脚本库注册进主 state 时先跑一次（这是最贴近"脚本环境刚建好"
-  的时刻）；主菜单 UI 加载完成时再补跑一次，早于各 Mod 自己 `FrontEndUI_*.lua` 的加载；GameCore
-  插件在对局里才加载，它们的登记会在对局加载完成时补跑；
-- **只跑一次**：同一个主 state 上，每个登记项只执行一次；state 被重建（指针变化）后会重跑；
+- **主菜单和对局都会跑**：Loader 钩的是引擎的 `AppLuaLocaleLibrary::pRegister` —— 本地化查询
+  库，每个脚本环境都要注册它，所以主菜单（FrontEnd）建环境时来一次、进对局（GameCore）建环境时
+  再来一次。你的回调因此两代都会执行，`L` 分别是那两代的 state；
+- **每个 state 只跑一次**：同一代里主菜单加载、对局加载这些时机撞上同一个 state 时不会重复执行；
+  换局后环境重建（新的 state）会再跑一次；
 - **在游戏线程执行**：回调里可以直接调 Lua C API，不需要自己切线程；
+- **`L` 是当次环境自己的 state**，不是你事先取好的某个固定指针。要在对局里生效的全局，就在
+  回调里直接往传入的 `L` 挂；如果只想在主菜单生效，可以先用 `GetMainLuaState()` 比一下；
 - 插件卸载/隔离时 Loader 按 owner 自动摘除登记。
 
 ### 6.7 游戏自定义事件总线（GameEvent）
