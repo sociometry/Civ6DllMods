@@ -106,11 +106,8 @@ Loader 明确区分两类插件，两者具有截然不同的生命周期与调�
 ```cpp
 #include "HookAPI.h"
 
-// 必须导出其一：插件初始化入口。推荐 OnLoadEx —— 它能回报"初始化失败"
-extern "C" __declspec(dllexport) int OnLoadEx(HookContext* ctx);   // 返回 0 = 初始化失败
-
-// 旧协议（仍受支持）：返回 void，只能靠"没崩"算成功，无法回报失败
-extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx);
+// 必须导出：插件初始化入口。返回 0 = 初始化失败，非 0 = 成功
+extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx);
 
 // 可选导出：跨插件消息接收
 extern "C" __declspec(dllexport) void OnMessage(const char* topic, const void* data, size_t len);
@@ -126,7 +123,7 @@ extern "C" __declspec(dllexport) void OnUnload();
 ```cpp
 static HookAPI* g_api = nullptr;   // 跨函数使用就存起来；只用一次也可以不存
 
-extern "C" __declspec(dllexport) int OnLoadEx(HookContext* ctx) {
+extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
     if (!HookContext_IsCompatible(ctx)) return 0;    // ABI 防御
 
     HookAPI* api = HookAPI_Resolve(ctx);             // 按名字解析出本模块的表
@@ -150,13 +147,13 @@ extern "C" __declspec(dllexport) int OnLoadEx(HookContext* ctx) {
   所以每个文件里都可以放心调，不会各建一份表；
 - **`HookAPI_RequireAll` 只列你自己用到的入口**。`HookAPI_Resolve` 会把所有格子填满，
   查不到的名字是 `nullptr`（绝不是野指针），但不检查就调用会空指针崩溃。
-  `RequireAll` 让你在 `OnLoad` 里发现缺项并干净退出，而不是在某个回调里炸掉；
+  `RequireAll` 让你在 `OnLoad` 里发现缺项并干净退出（`return 0`），而不是在某个回调里炸掉；
 - 参数用成员指针（`&HookAPI::ResolveByName`）而不是字符串，所以名字拼错是**编译错误**、
   IDE 能补全、重命名能跟随；
-- **用 `OnLoadEx` 返回 0 = 干净拒绝**：Loader 会回滚本次加载里已经登记的一切（钩子、捕获、
+- **`OnLoad` 返回 0 = 干净拒绝**：Loader 会回滚本次加载里已经登记的一切（钩子、捕获、
   脚本全局、消息），**不激活、不注册 `OnMessage`**，并把该插件标记为不可用（本次进程内不再重试）。
-  旧协议 `OnLoad` 没有这个能力——它返回 `void`，Loader 只能把"没崩"当成功，因此缺接口时务必
-  改用 `OnLoadEx` 才能让加载真正失败。
+  所以"缺接口就退出"必须写成 `return 0`，不能只是 `return;`——后者在旧式 `void OnLoad` 里
+  等于什么都没发生，插件仍会被激活。
 
 ### 生命周期规则与 OnUnload
 
@@ -471,20 +468,21 @@ tools\rva_to_symbol.exe -dx12 0x37AB0 0x37DE0 --demangled
 ```cpp
 static HookAPI* g_api = nullptr;
 
-extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
-    // 必须首先检查 ABI 兼容性
+extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
+    // 必须首先检查 ABI 兼容性；返回 0 = 初始化失败
     if (!HookContext_IsCompatible(ctx)) {
-        return;
+        return 0;
     }
 
     HookAPI* api = HookAPI_Resolve(ctx);
     // 只列本插件真正依赖的入口；缺一个就说明 Loader 版本不匹配，干净退出
     if (!HookAPI_RequireAll(api, &HookAPI::Log)) {
-        return;
+        return 0;
     }
     g_api = api;
 
     api->Log("MyPlugin: OnLoad successfully initialized.");
+    return 1;   // 初始化成功
 }
 ```
 
@@ -1027,7 +1025,7 @@ inline bool HookAPI_RequireAll(const HookAPI* api, M... members);
 
 | 头文件内的辅助工具 | 说明 |
 |--------------------|------|
-| `HookContext_IsCompatible(ctx)` | 检查 Loader 与插件是否同一次构建（比较 `structSize` + `apiVersion`）。`OnLoad` 开头调一次，返回 0 就退出。 |
+| `HookContext_IsCompatible(ctx)` | 检查 Loader 与插件是否同一次构建（比较 `structSize` + `apiVersion`）。`OnLoad` 开头调一次，返回 0 就 `return 0` 让加载失败。 |
 | `HookAPI_Resolve(ctx)` | 按名字把 79 个入口解析进本模块私有的表，返回其指针。幂等；同一插件的多个 `.cpp` 共享同一份。 |
 | `HookAPI_RequireAll(api, &HookAPI::A, &HookAPI::B)` | 检查指定入口是否都解析成功。只列自己用到的；缺项返回 false，用于优雅退出。 |
 | `ResolveByName<T>(api, image, name)` | `ResolveByName` 的返回类型转换封装。 |
@@ -1067,18 +1065,19 @@ static void OnInitGlobals(void* L) {
     g_api->LuaPop(L, 1);
 }
 
-extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
+extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
     if (!HookContext_IsCompatible(ctx)) {
-        return;
+        return 0;
     }
     HookAPI* api = HookAPI_Resolve(ctx);
     if (!HookAPI_RequireAll(api, &HookAPI::Log, &HookAPI::RegisterGameCoreScriptForGamePlay)) {
-        return;
+        return 0;
     }
     g_api = api;
     api->Log("MyMod: loaded");
 
     api->RegisterGameCoreScriptForGamePlay(&OnInitGlobals);
+    return 1;
 }
 
 // 可选：接收其它插件的消息
