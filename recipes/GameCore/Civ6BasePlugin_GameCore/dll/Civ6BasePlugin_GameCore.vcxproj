@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+	<ItemGroup Label="ProjectConfigurations">
+		<ProjectConfiguration Include="Debug|x64">
+			<Configuration>Debug</Configuration>
+			<Platform>x64</Platform>
+		</ProjectConfiguration>
+		<ProjectConfiguration Include="Release|x64">
+			<Configuration>Release</Configuration>
+			<Platform>x64</Platform>
+		</ProjectConfiguration>
+	</ItemGroup>
+	<PropertyGroup Label="Globals">
+		<VCProjectVersion>17.0</VCProjectVersion>
+		<Keyword>Win32Proj</Keyword>
+		<ProjectGuid>{3D7C1A62-5E84-4B90-9C13-2F8A6D0E4B57}</ProjectGuid>
+		<RootNamespace>Civ6BasePlugin_GameCore</RootNamespace>
+		<WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+	</PropertyGroup>
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+		<ConfigurationType>DynamicLibrary</ConfigurationType>
+		<UseDebugLibraries>true</UseDebugLibraries>
+		<PlatformToolset>v143</PlatformToolset>
+		<CharacterSet>Unicode</CharacterSet>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+		<ConfigurationType>DynamicLibrary</ConfigurationType>
+		<UseDebugLibraries>false</UseDebugLibraries>
+		<PlatformToolset>v143</PlatformToolset>
+		<WholeProgramOptimization>true</WholeProgramOptimization>
+		<CharacterSet>Unicode</CharacterSet>
+	</PropertyGroup>
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+	<ImportGroup Label="ExtensionSettings" />
+	<ImportGroup Label="Shared" />
+	<ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+		<Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+	</ImportGroup>
+	<ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+		<Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+	</ImportGroup>
+	<PropertyGroup Label="UserMacros" />
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+		<OutDir>$(ProjectDir)..\..\..\..\x64\$(Configuration)\</OutDir>
+		<IntDir>$(ProjectDir)x64\$(Configuration)\</IntDir>
+		<TargetPath>$(OutDir)$(TargetName)$(TargetExt)</TargetPath>
+	</PropertyGroup>
+	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+		<OutDir>$(ProjectDir)..\..\..\..\x64\$(Configuration)\</OutDir>
+		<IntDir>$(ProjectDir)x64\$(Configuration)\</IntDir>
+		<TargetPath>$(OutDir)$(TargetName)$(TargetExt)</TargetPath>
+	</PropertyGroup>
+	<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+		<ClCompile>
+			<WarningLevel>Level3</WarningLevel>
+			<SDLCheck>true</SDLCheck>
+			<PreprocessorDefinitions>_DEBUG;_WINDOWS;_USRDLL;CIV6_PLUGIN_GAMECORE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+			<ConformanceMode>true</ConformanceMode>
+			<PrecompiledHeader>Use</PrecompiledHeader>
+			<PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+			<AdditionalIncludeDirectories>$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+			<LanguageStandard>stdcpp20</LanguageStandard>
+			<AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+		</ClCompile>
+		<Link>
+			<SubSystem>Windows</SubSystem>
+			<GenerateDebugInformation>true</GenerateDebugInformation>
+			<EnableUAC>false</EnableUAC>
+		</Link>
+	</ItemDefinitionGroup>
+	<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+		<ClCompile>
+			<WarningLevel>Level3</WarningLevel>
+			<FunctionLevelLinking>true</FunctionLevelLinking>
+			<IntrinsicFunctions>true</IntrinsicFunctions>
+			<SDLCheck>true</SDLCheck>
+			<PreprocessorDefinitions>NDEBUG;_WINDOWS;_USRDLL;CIV6_PLUGIN_GAMECORE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+			<ConformanceMode>true</ConformanceMode>
+			<PrecompiledHeader>Use</PrecompiledHeader>
+			<PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+			<AdditionalIncludeDirectories>$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+			<LanguageStandard>stdcpp20</LanguageStandard>
+			<AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+		</ClCompile>
+		<Link>
+			<SubSystem>Windows</SubSystem>
+			<GenerateDebugInformation>true</GenerateDebugInformation>
+			<EnableUAC>false</EnableUAC>
+		</Link>
+	</ItemDefinitionGroup>
+	<ItemGroup>
+		<ClInclude Include="BugFix\GreatWorkOptimizer\GreatWorkOptimizer.h" />
+		<ClInclude Include="BugFix\GreatWorkTypeLookup\GreatWorkTypeLookup.h" />
+		<ClInclude Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.h" />
+		<ClInclude Include="APIExtension\GreatWorkAPI\GreatWorkAPI.h" />
+		<ClInclude Include="APIExtension\ModifierManagerAPI\ModifierManagerAPI.h" />
+		<ClInclude Include="Common\GameCoreResolve.h" />
+		<ClInclude Include="HookAPI.h" />
+		<ClInclude Include="framework.h" />
+		<ClInclude Include="pch.h" />
+	</ItemGroup>
+	<ItemGroup>
+		<ClCompile Include="BugFix\GreatWorkOptimizer\GreatWorkOptimizer.cpp" />
+		<ClCompile Include="BugFix\GreatWorkTypeLookup\GreatWorkTypeLookup.cpp" />
+		<ClCompile Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.cpp" />
+		<ClCompile Include="APIExtension\GreatWorkAPI\GreatWorkAPI.cpp" />
+		<ClCompile Include="APIExtension\ModifierManagerAPI\ModifierManagerAPI.cpp" />
+		<ClCompile Include="dllmain.cpp" />
+		<ClCompile Include="pch.cpp">
+			<PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
+			<PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
+		</ClCompile>
+	</ItemGroup>
+	<Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+	<ItemGroup>
+		<Filter Include="源文件">
+			<UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+			<Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+		</Filter>
+		<Filter Include="头文件">
+			<UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+			<Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+		</Filter>
+		<Filter Include="BugFix">
+			<UniqueIdentifier>{2A6B9C41-1D0E-4C77-9E52-8B7A31F0C6A1}</UniqueIdentifier>
+		</Filter>
+		<Filter Include="APIExtension">
+			<UniqueIdentifier>{5C3D7E92-4B18-4A60-B1F4-9D2E6A0F8C35}</UniqueIdentifier>
+		</Filter>
+		<Filter Include="Common">
+			<UniqueIdentifier>{9B2E6D53-7A4C-4E19-8F60-3C1D5B7A2E48}</UniqueIdentifier>
+		</Filter>
+	</ItemGroup>
+	<ItemGroup>
+		<ClInclude Include="BugFix\GreatWorkOptimizer\GreatWorkOptimizer.h">
+			<Filter>BugFix</Filter>
+		</ClInclude>
+		<ClInclude Include="BugFix\GreatWorkTypeLookup\GreatWorkTypeLookup.h">
+			<Filter>BugFix</Filter>
+		</ClInclude>
+		<ClInclude Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.h">
+			<Filter>BugFix</Filter>
+		</ClInclude>
+		<ClInclude Include="APIExtension\GreatWorkAPI\GreatWorkAPI.h">
+			<Filter>APIExtension</Filter>
+		</ClInclude>
+		<ClInclude Include="APIExtension\ModifierManagerAPI\ModifierManagerAPI.h">
+			<Filter>APIExtension</Filter>
+		</ClInclude>
+			<Filter>APIExtension</Filter>
+		</ClInclude>
+			<Filter>APIExtension</Filter>
+		</ClInclude>
+			<Filter>APIExtension</Filter>
+		</ClInclude>
+		<ClInclude Include="Common\GameCoreResolve.h">
+			<Filter>Common</Filter>
+		</ClInclude>
+		<ClInclude Include="HookAPI.h">
+			<Filter>头文件</Filter>
+		</ClInclude>
+		<ClInclude Include="framework.h">
+			<Filter>头文件</Filter>
+		</ClInclude>
+		<ClInclude Include="pch.h">
+			<Filter>头文件</Filter>
+		</ClInclude>
+	</ItemGroup>
+	<ItemGroup>
+		<ClCompile Include="BugFix\GreatWorkOptimizer\GreatWorkOptimizer.cpp">
+			<Filter>BugFix</Filter>
+		</ClCompile>
+		<ClCompile Include="BugFix\GreatWorkTypeLookup\GreatWorkTypeLookup.cpp">
+			<Filter>BugFix</Filter>
+		</ClCompile>
+		<ClCompile Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.cpp">
+			<Filter>BugFix</Filter>
+		</ClCompile>
+		<ClCompile Include="APIExtension\GreatWorkAPI\GreatWorkAPI.cpp">
+			<Filter>APIExtension</Filter>
+		</ClCompile>
+		<ClCompile Include="APIExtension\ModifierManagerAPI\ModifierManagerAPI.cpp">
+			<Filter>APIExtension</Filter>
+		</ClCompile>
+			<Filter>APIExtension</Filter>
+		</ClCompile>
+		<ClCompile Include="dllmain.cpp">
+			<Filter>源文件</Filter>
+		</ClCompile>
+		<ClCompile Include="pch.cpp">
+			<Filter>源文件</Filter>
+		</ClCompile>
+	</ItemGroup>
+</Project>
