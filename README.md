@@ -2,97 +2,94 @@
 
 [Civ6DllLoader](https://github.com/sociometry/Civ6DllLoader) 的 DLL mod 写法示范集合。
 
-## Layout
+本仓库**不提供**可直接使用的完整 mod，只提供可参考、可复制的插件工程与文档。自行组装见 [插件开发指南](docs/PLUGIN_GUIDE.md)。
 
-```text
-recipes/
-  Global/             Global 插件示范（Plugins/Global/，进程内常驻）
-  GameCore/           GameCore 插件示范（Plugins/GameCore/，随对局加载/卸载）
-docs/                 作者指南与 mod 模板
-```
+---
 
-每个 recipe：
+## 示例工程
 
-```text
-recipes/<域>/<Name>/
-  README.md
-  dll/               VS 插件工程
-  Civ6Mod/           可选：mod 工程
-```
+插件按生命周期分两类，**部署目录与可用接口都不同**：
 
-本仓库**不提供**可直接使用的完整 mod 。自行组装见 `docs/`。
+- **Global** —— 游戏启动早期加载，进程常驻、永不卸载，部署到 `Binaries/Win64/Plugins/Global/`
+- **GameCore** —— 每次进入对局加载，退局 / 回主菜单时随映像一起卸载，部署到 `Binaries/Win64/Plugins/GameCore/`
 
-## Recipes
+### Global 域
 
-| Recipe | 说明 |
-|--------|------|
-| `FourRing` | 实战 hook（`ComputePlotsFromRadius`）：恒返回 61，验证按名取符号 + `InstallHook` |
-| `AdjustPlotPropertyEffect` | 在 runtime 中注入 `EFFECT_ADJUST_PLOT_PROPERTY` 的脚手架示范 |
-| `NewRequirements` | 新增两个自定义 Requirement：玩家属性阈值（`REQUIREMENT_PLAYER_PROPERTY_MATCHES`）与地块道路类型（`REQUIREMENT_PLOT_ROUTE_TYPE_MATCHES`） |
-| `HookExe` | Global exe hook：观察 DX11 exe 的 `ResourceList.AddResource`，调用原函数并累计调用次数 |
-| `PatchExe` | Global 字节补丁：改写 DX11 exe 容量判断的立即数（`8192` → `256`），演示指令校验与恢复 |
-| `ApiSmokeTest` | HookAPI 全量接口冒烟测试（41 组，A/B/C/D 四阶段时序） |
-| `Civ6BasePlugin_Global` | 基础插件集 Global 侧：`UnlockModelLimit`（解除模型/材质上限）+ `ModConfig`（全局 Lua 配置接口，挂到引擎主 Lua state） |
-| `Civ6BasePlugin_GameCore` | 基础插件集 GameCore 侧：`GreatWorkOptimizer` / `GreatWorkTypeLookup` / `GreatWorkYieldStack`（BugFix）+ `GreatWorkAPI` / `ModifierManagerAPI`（Lua API） |
+| 工程 | 说明 |
+| --- | --- |
+| [Civ6BasePlugin](recipes/Global/Civ6BasePlugin/README.md) | 基础插件集。`UnlockModelLimit` 解除渲染资源上限（IB/VB 8192→16384，SPI 16384→32768）；`ModConfig` 提供全局 Lua 键值持久化接口 |
+| [HookExe](recipes/Global/HookExe/README.md) | exe 域 hook 示范：观察 `ResourceList.AddResource` 并累计调用次数 |
+| [PatchExe](recipes/Global/PatchExe/README.md) | exe 域字节补丁示范：改写容量判断的立即数，含指令校验与恢复 |
 
-### Civ6BasePlugin 的两段式拆分
+### GameCore 域
 
-原单工程 `Civ6BasePlugin` 已拆为两个工程，分属两类插件域，**生命周期与可调用接口都不同**（详见 [`docs/PLUGIN_GUIDE.md` §3](docs/PLUGIN_GUIDE.md)）：
+| 工程 | 说明 |
+| --- | --- |
+| [Civ6BasePlugin_GameCore](recipes/GameCore/Civ6BasePlugin_GameCore/README.md) | 基础插件集。4 个 BugFix（巨作分配优化 / 类型解析 / 产出叠加 / **单位伤害上限**）+ 3 个 Lua API 扩展（巨作 / 修饰符 / **单位等级**） |
+| [FourRing](recipes/GameCore/FourRing/README.md) | 最小实战 hook：`ComputePlotsFromRadius` 固定返回 43（调用点再加 18 得 61），验证按名取符号 + `InstallHook` |
+| [NewRequirements](recipes/GameCore/NewRequirements/README.md) | 新增自定义 Requirement：玩家属性阈值、地块道路类型 |
+| [AdjustPlotPropertyEffect](recipes/GameCore/AdjustPlotPropertyEffect/README.md) | 注入 `EFFECT_ADJUST_PLOT_PROPERTY` 的脚手架示范 |
 
-| 工程 | 域 | 部署目录 | 生命周期 | 内容 |
-|------|----|----------|----------|------|
-| `Civ6BasePlugin_Global` | Global | `Plugins/Global/` | 游戏启动早期（Phase A）加载，进程内常驻、永不卸载 | exe 域：`UnlockModelLimit`；Lua 域：`ModConfig`（引擎主 state） |
-| `Civ6BasePlugin_GameCore` | GameCore | `Plugins/GameCore/` | 每次进对局（Phase B）加载，退局 / 回主菜单 / 重载对局时卸载 | 对局玩法域：3 个 BugFix + 2 个 Lua API 扩展 |
+> 目录里每个工程都带 `README.md`，讲清楚它改了什么、怎么定位目标、踩过哪些坑。上表的链接直达。
 
-拆分的原因之一是两个域的**接口门禁**不同：`GetPlayer`、`RegisterGameEvent`、`TriggerGameEvent`、`RegisterGameCoreScriptForGamePlay`、`PushLuaMethods` 等 GameCore 专属入口，在定义了 `CIV6_PLUGIN_GLOBAL` 的工程里**根本不存在**，跨域调用会在编译期直接失败。
+---
 
-### 新增能力（2026-10）
+## 文档
 
-- **`ModConfig`**：给 mod 作者的键值持久化接口，数据落在
-  `Documents\My Games\Sid Meier's Civilization VI\ModConfigs\<名字>.json`
-  —— `<名字>` 就是调用时传的第一个参数（如 `ModConfig.Set("MyMod", ...)` 对应
-  `ModConfigs\MyMod.json`），只做文件名清洗，不读 `.modinfo`。
-  实现在 Global 侧 `APIExtension/ModConfig`，用 `RegisterGlobalScript` 注册一次 ——
-  该入口的语义就是"注册全局可用的接口"，loader 会挂到主菜单与对局的每个脚本环境。
-  用法见 [`docs/MODCONFIG.md`](docs/MODCONFIG.md)。
-- **调研与路线图**：[`docs/RESEARCH_NEW_FEATURES.md`](docs/RESEARCH_NEW_FEATURES.md)（联网调研，
-  1515 行，含证据链接与 15 个功能的 V/D/F 评分）、[`docs/ROADMAP.md`](docs/ROADMAP.md)（从报告收敛出的排期）。
-- **GameCore 侧 5 个模块全部恢复参与编译**：去掉已删除的 `RegisterGameCoreReady` /
-  `RegisterGameCoreTeardown` 代际回调与改名前的 `EditPlayer`，取址统一改为
-  "符号名 + 唯一 AOB 兜底 + 前导字节校验"，详见
-  [`recipes/GameCore/Civ6BasePlugin_GameCore/README.md`](recipes/GameCore/Civ6BasePlugin_GameCore/README.md)。
+| 文档 | 内容 |
+| --- | --- |
+| [PLUGIN_GUIDE.md](docs/PLUGIN_GUIDE.md) | **主文档**。插件工程配置、取址模型（符号名 + AOB 兜底）、Hook / Patch、Lua 扩展、asmjit 生成 detour、排查表 |
+| [DX12_UNLOCKMODELLIMIT_ANALYSIS.md](docs/DX12_UNLOCKMODELLIMIT_ANALYSIS.md) | UnlockModelLimit 从 DX11 移植到 DX12 的差异分析（IDA 实机取证） |
+| [template/](docs/template/) | mod 目录模板：`.modinfo`、Data SQL、UI XML/Lua |
 
-### 本地验证脚本
+---
+
+## 构建
+
+1. 先构建 [Civ6DllLoader](https://github.com/sociometry/Civ6DllLoader)（薄壳 + runtime）。
+2. 再构建本仓库的插件工程。可在仓库根打开 `Recipes.sln` 一次全建，也可单独 MSBuild 某个 `.vcxproj`。
+3. 产物统一输出到仓库根 `x64/Release/<Name>.dll`。
+4. 按插件域放进 mod 的 `Plugins/Global/` 或 `Plugins/GameCore/`。**直接放在 `Plugins/` 根目录下的 DLL 会被忽略。**
+
+工程通用要求：`x64`、C++20、`/utf-8`（仓库约定源码为 UTF-8 无 BOM）；引用了 asmjit 的工程还需 `/MT` 与 `ASMJIT_STATIC`。
+
+`HookAPI.h` 需要与运行时版本配套 —— 从 Civ6DllLoader 发行包复制进各 `recipes/*/*/dll/`。
+
+---
+
+## 工具
 
 ```bash
-bash tools/build_global.sh          # 构建 Global 工程
-bash tools/build_gamecore.sh        # 构建 GameCore 工程
-python tools/aob_scan.py            # 用当前 GameCore DLL 复核所有 AOB 的唯一性
-python tools/verify_stack_semantics.py   # 核对 ModConfig 的栈操作与"不含内嵌 Lua"
-cmd //c tools\minijson_test\build.cmd && ./tools/minijson_test/minijson_test.exe
-cmd //c tools\modconfig_test\build.cmd && ./tools/modconfig_test/modconfig_test.exe
+# 构建
+bash tools/build_global.sh                 # 构建 Global 工程
+bash tools/build_gamecore.sh               # 构建 GameCore 工程
+
+# 校验
+python tools/aob_scan.py                   # 复核所有 AOB 特征码在目标映像内是否唯一
+python tools/verify_deployment.py          # 检查插件 PE 位数 / 导出表 / 插件类别
+python tools/check_runtime_api.py          # 检查 runtime 是否包含 HookAPI.h 的全部入口
+python tools/check_mod_lua.py "<mod目录>"   # 检查 mod 里 Lua 与 XML 的语法
+python tools/verify_stack_semantics.py     # 核对 ModConfig 的栈操作
 
 # 部署到 FourRing（构建 + 复制 + 校验）
 bash tools/deploy_fourring.sh
-bash tools/deploy_fourring.sh --check     # 只校验现有部署
-
-# 单独跑的校验工具
-python tools/verify_deployment.py         # 插件 PE 位数 / 导出表 / 架构
-python tools/check_runtime_api.py         # runtime 是否含 HookAPI.h 的全部入口
-python tools/check_mod_lua.py "<mod目录>"  # Mod 里 Lua + XML 的语法检查
+bash tools/deploy_fourring.sh --check      # 只校验现有部署
 ```
 
-### 部署与自检
+另有 `tools/rva_to_symbol.exe`：输入 RVA 反查 Loader 内嵌符号库里的符号名（写 `HookName` 时用）。
 
-部署位置、自检面板、对局内自检、失败排查表都在
-[`docs/DEPLOY_FOURRING.md`](docs/DEPLOY_FOURRING.md)。
+---
 
-## Build
+## 目录结构
 
-1. 先构建 **Civ6DllLoader**（薄壳 + runtime）。
-2. 然后构建 recipe 的 dll：可在仓库根打开 `Recipes.sln` 一次构建，也可单独 MSBuild 某个 `.vcxproj`。
-3. 产物默认在仓库根 `x64/Release/<Name>.dll`——包括拆分后的两个 Civ6BasePlugin 工程，它们同样统一输出到仓库根，不再各自落在工程目录下。
-4. 按插件域放入 mod：Global 插件进 `Binaries/Win64/Plugins/Global/`，GameCore 插件进 `Binaries/Win64/Plugins/GameCore/`（直接放在 `Plugins/` 根目录下的 DLL 会被忽略）。
-5. 把 DLL 与 `Civ6Mod/` 素材接到你自己的 mod（参见 `docs/PLUGIN_GUIDE.md`、`docs/template/`）。
-
-升级 `HookAPI.h`：从 Civ6DllLoader 发行包再复制进各 `recipes/*/*/dll/`。
+```text
+recipes/
+  Global/             Global 插件工程（Plugins/Global/，进程常驻）
+  GameCore/           GameCore 插件工程（Plugins/GameCore/，随对局加载）
+  <域>/<Name>/
+    README.md         该工程改了什么、怎么定位目标、踩过哪些坑
+    dll/              VS 插件工程
+    Civ6Mod/          可选：mod 工程
+docs/                 开发指南、专题分析、mod 模板
+tools/                构建 / 校验 / 部署脚本
+```
