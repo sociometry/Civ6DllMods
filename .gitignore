@@ -19,6 +19,7 @@ stub_out/
 *.ilk
 *.lib
 *.exp
+
 *.idb
 *.ipdb
 *.iobj
@@ -44,3 +45,10 @@ docs/RESEARCH_NEW_FEATURES.md
 tools/aob_pattern_test/*.exe
 tools/minijson_test/*.exe
 tools/modconfig_test/*.exe
+
+# vendored 第三方静态库必须入库，否则克隆后编不过。
+# 注意：只能逐个路径写，!*.lib 之类对已被 *.lib 忽略的文件无效。
+!recipes/Global/Civ6BasePlugin/dll/lib/
+!recipes/GameCore/Civ6BasePlugin_GameCore/dll/lib/
+!recipes/Global/Civ6BasePlugin/dll/lib/*.lib
+!recipes/GameCore/Civ6BasePlugin_GameCore/dll/lib/*.lib
