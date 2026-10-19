@@ -18,8 +18,6 @@
 | 工程 | 说明 |
 | --- | --- |
 | [Civ6BasePlugin](recipes/Global/Civ6BasePlugin/README.md) | 基础插件集。`UnlockModelLimit` 解除渲染资源上限（IB/VB 8192→16384，SPI 16384→32768）；`ModConfig` 提供全局 Lua 键值持久化接口 |
-| [HookExe](recipes/Global/HookExe/README.md) | exe 域 hook 示范：观察 `ResourceList.AddResource` 并累计调用次数 |
-| [PatchExe](recipes/Global/PatchExe/README.md) | exe 域字节补丁示范：改写容量判断的立即数，含指令校验与恢复 |
 
 ### GameCore 域
 
