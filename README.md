@@ -47,7 +47,14 @@
 ## 构建
 
 1. 先构建 [Civ6DllLoader](https://github.com/sociometry/Civ6DllLoader)（薄壳 + runtime）。
-2. 再构建本仓库的插件工程。可在仓库根打开 `Recipes.sln` 一次全建，也可单独 MSBuild 某个 `.vcxproj`。
+2. 再构建本仓库的插件工程。可在仓库根打开 `Recipes.sln` 一次全建，也可单独 MSBuild 某个 `.vcxproj`：
+
+   ```powershell
+   & 'MSBuild.exe' `
+     'recipes\Global\Civ6BasePlugin\dll\Civ6BasePlugin_Global.vcxproj' `
+     /p:Configuration=Release /p:Platform=x64
+   ```
+
 3. 产物统一输出到仓库根 `x64/Release/<Name>.dll`。
 4. 按插件域放进 mod 的 `Plugins/Global/` 或 `Plugins/GameCore/`。**直接放在 `Plugins/` 根目录下的 DLL 会被忽略。**
 
@@ -59,24 +66,21 @@
 
 ## 工具
 
-```bash
-# 构建
-bash tools/build_global.sh                 # 构建 Global 工程
-bash tools/build_gamecore.sh               # 构建 GameCore 工程
+仓库只带一个工具：`tools/rva_to_symbol.exe`。
 
-# 校验
-python tools/aob_scan.py                   # 复核所有 AOB 特征码在目标映像内是否唯一
-python tools/verify_deployment.py          # 检查插件 PE 位数 / 导出表 / 插件类别
-python tools/check_runtime_api.py          # 检查 runtime 是否包含 HookAPI.h 的全部入口
-python tools/check_mod_lua.py "<mod目录>"   # 检查 mod 里 Lua 与 XML 的语法
-python tools/verify_stack_semantics.py     # 核对 ModConfig 的栈操作
+写插件时最费时的一步是"这个 RVA 到底是哪个函数"。它内嵌了 Loader 的符号库（单文件，编译期嵌入，不需要额外环境），输入 RVA 即可反查符号名：
 
-# 部署到 FourRing（构建 + 复制 + 校验）
-bash tools/deploy_fourring.sh
-bash tools/deploy_fourring.sh --check      # 只校验现有部署
+```text
+tools\rva_to_symbol.exe -gamecore 0x3A5A60          # GameCore_XP2_FinalRelease.dll
+tools\rva_to_symbol.exe -dx11     0x4D0D70          # CivilizationVI.exe
+tools\rva_to_symbol.exe -dx12     0x37AB0           # CivilizationVI_DX12.exe
+tools\rva_to_symbol.exe --list                     # 查看可用映像与符号库文件名
+tools\rva_to_symbol.exe -gamecore 0x3A5A60 --demangled   # 只取一栏
 ```
 
-另有 `tools/rva_to_symbol.exe`：输入 RVA 反查 Loader 内嵌符号库里的符号名（写 `HookName` 时用）。
+**输入是 RVA，不是绝对地址** —— IDA 里拿到的是 VA，要先减去映像基址。三个映像的 RVA 空间互不相通，所以必须显式给选择符。
+
+拿到符号名后写成 `HookName("GameCore::…")`，跨版本交给 `PdataMatch` 矫正。详见 [插件开发指南 §5.8](docs/PLUGIN_GUIDE.md)。
 
 ---
 

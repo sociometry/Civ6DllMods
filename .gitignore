@@ -41,10 +41,11 @@ __pycache__/
 # 联网调研稿（体积大、含大量外链快照，不入库）
 docs/RESEARCH_NEW_FEATURES.md
 
-# 测试工具的编译产物（源码与 build.cmd 保留；tools/rva_to_symbol.exe 是刻意入库的单文件工具）
-tools/aob_pattern_test/*.exe
-tools/minijson_test/*.exe
-tools/modconfig_test/*.exe
+# tools/ 下的东西一律不入库，只放行 rva_to_symbol.exe（仓库唯一随附工具）。
+# 注意必须写 tools/* 而不是 tools/ —— 目录整体被忽略时 git 不会进去找否定规则，
+# !tools/rva_to_symbol.exe 就失效了。
+tools/*
+!tools/rva_to_symbol.exe
 
 # vendored 第三方静态库必须入库，否则克隆后编不过。
 # 注意：只能逐个路径写，!*.lib 之类对已被 *.lib 忽略的文件无效。

@@ -197,7 +197,7 @@ tools\rva_to_symbol.exe -gamecore 0x3A5A60 --demangled
 ### AOB 兜底的唯一性
 
 每条 AOB 都在当前 `GameCore_XP2_FinalRelease.dll` 的 `.text` 段内**唯一命中**
-（`tools/aob_scan.py` 直接扫 PE 复核，当前 23 条全唯一）。**同形函数太多的目标不带 AOB** ——
+（逐条扫 PE 复核，当前 23 条全唯一）。**同形函数太多的目标不带 AOB** ——
 带上只会随机命中别的函数：
 
 | 目标 | AOB | 说明 |
@@ -259,8 +259,6 @@ recipes/GameCore/Civ6BasePlugin_GameCore/
   'recipes\GameCore\Civ6BasePlugin_GameCore\dll\Civ6BasePlugin_GameCore.vcxproj' `
   /p:Configuration=Release /p:Platform=x64
 ```
-
-或直接跑仓库脚本：`bash tools/build_gamecore.sh`。
 
 产物：`x64/Release/Civ6BasePlugin_GameCore.dll`。
 

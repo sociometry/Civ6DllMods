@@ -140,12 +140,6 @@ ModConfig.Version                              -- "1.0"
    重新开始 —— 不会因为一个坏文件让 mod 永久起不来。
 6. **文件名清洗**：见上表。
 
-### 已验证
-
-- `tools/minijson_test`：JSON 往返、转义、`\uXXXX`、深嵌套保护、错误输入 —— 全绿；
-- `tools/modconfig_test`：真实文件系统下的写入/读回/损坏自愈/原子写残留 —— 全绿；
-- `tools/modconfig_lua_test_run.lua`：用 Lua 5.1 跑编码器与门面转发 —— 全绿。
-
 ---
 
 ## 目录结构
@@ -183,8 +177,6 @@ recipes/Global/Civ6BasePlugin/
   'recipes\Global\Civ6BasePlugin\dll\Civ6BasePlugin_Global.vcxproj' `
   /p:Configuration=Release /p:Platform=x64
 ```
-
-或直接跑仓库脚本：`bash tools/build_global.sh`。
 
 产物：`x64/Release/Civ6BasePlugin_Global.dll`。
 
