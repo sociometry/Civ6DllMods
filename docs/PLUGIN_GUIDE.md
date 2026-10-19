@@ -415,7 +415,9 @@ if (!fn) {
 
 ### 5.8 把 RVA 反查成符号名：`tools/rva_to_symbol`
 
-写插件最费时的一步往往是"这个 0x5BDAC0 到底是哪个函数"。仓库自带 `tools/rva_to_symbol.exe`（单文件，符号表在编译期嵌进去，不需要 Rust 环境）：
+仓库自带 `tools/rva_to_symbol.exe`（单文件，符号表在编译期嵌进去，不需要 Rust 环境）：
+这个工具输入RVA就能获取到Loader内嵌符号库中对应的符号。
+**注意：反编译不可能恢复所有符号，所以有符号名字和函数实际作用不一致是正常的。只要RVA能有个唯一对应的符号就行了，这份符号库未来大概率不会再更新，所以错误符号也不会有解析错误的风险（官方更新除外）。当然，如果你觉得错误符号会造成阅读困难，也可以直接使用RVA。**
 
 ```text
 tools\rva_to_symbol.exe -gamecore 0x5BDAC0
@@ -450,14 +452,9 @@ tools\rva_to_symbol.exe -dx11 0x4D0D70 --demangled
 tools\rva_to_symbol.exe -dx12 0x37AB0 0x37DE0 --demangled
 ```
 
-拿到符号名之后，按 §5.2 写成 `HookName("GameCore::…")`，跨版本就交给 `PdataMatch` 矫正，比把 RVA 写死稳得多。
+拿到符号名之后，按 §5.2 写成 `HookName("GameCore::…")`，跨版本就交给 `PdataMatch` 矫正，尽量使用demangled符号，这样才能达到易读的目的，并且建议在注释里写上RVA，方便后续核查。
 
-> 符号名来自 IDA 符号库，是**某一次分析**的快照，不是游戏官方导出。DX12 的 IDB 符号覆盖比 DX11
-> 稀，个别函数在 `-dx12` 下只会显示成 `sub_1404D15F0` 这种地址名，这时只能靠 AOB（§5.1）或
-> 双版本 `HookInfoExe`（§5.3）处理。
->
-> 这个 exe 来自 Civ6DllLoader 仓库的 `tools/rva_to_symbol/`（源码、构建脚本与符号表生成流程都在那边），
-> 符号表在编译期嵌入；游戏更新后重新构建一次，把新的 exe 替换过来即可。
+> 符号名来自 IDA 符号库，是**某一次分析**的快照，不是游戏官方导出。DX12 的 IDB 符号覆盖比 DX11稀。
 
 ---
 
@@ -578,7 +575,7 @@ api->PushLuaMethods("GameCore::Lua::IQuestsManager", s_methods, 1);
 |---|---|---|---|
 | `RegisterGameCoreScriptForGamePlay` | GameCore 专属 | GameCore 的 gameplay Lua | 每局重建，随对局卸载失效 |
 | `RegisterGameCoreScriptForUI` | GameCore 专属 | GameCore 的 UI 脚本 Lua | 同上（与 gameplay 不是同一个 state） |
-| `RegisterGlobalScript` | 两类都能用 | exe 建的**每一个** Lua 环境（`FrontEnd` / `MainMenu` / `Options` / 对局 …） | 进程级；每个环境各跑一次 |
+| `RegisterGlobalScript` | **Global 专属** | exe 建的**每一个** Lua 环境（`FrontEnd` / `MainMenu` / `Options` / 对局 …） | 进程级；每个环境各跑一次 |
 
 回调签名统一是 `void (*)(void* L)`，`L` 就是对应的 `lua_State*`，可以直接用 Lua C API：
 
@@ -598,7 +595,7 @@ static void InitGlobals(void* L) {
 api->RegisterGameCoreScriptForGamePlay(&InitGlobals);
 // GameCore 侧 UI 脚本用（GameCore 插件）：
 api->RegisterGameCoreScriptForUI(&InitGlobals);
-// 进程级全局用（Global 插件也可以）：主菜单与对局两代环境各跑一次
+// 进程级全局用（仅 Global 插件可见）：每个 Lua 环境各跑一次
 api->RegisterGlobalScript(&InitGlobals);
 ```
 
