@@ -13,15 +13,15 @@ Civilization VI 的 **GameCore 生命周期插件工程**，跑在 [Civ6DllLoade
 
 ## 模块清单
 
-| 模块 | 分类 | 功能 |
+| 模块 | 分类 | 解决什么问题 |
 | --- | --- | --- |
-| **GreatWorkOptimizer** | BugFix | 巨作分配优化：巨作集合未变时跳过 O(G³) 全量重算；`bounded_knapsack` 容量钳制（capacity > 3 与 3 等价）；人类玩家整次跳过 |
-| **GreatWorkTypeLookup** | BugFix | 巨作「名哈希 → 类型索引」解析修复：原实现写死 switch、未命中返回 -1，模组新增类型后必败；改为先查数据驱动定义集合 + 哈希缓存 |
-| **GreatWorkYieldStack** | BugFix | 巨作产出加成不叠加修复：`GetGreatWorkYieldChange` 找到第一条匹配就返回，改为遍历整表求和 |
-| **UnitDamageCap** | BugFix | **单位伤害上限对齐真实 `MaxHitPoints`**：MOD 把单位血量提到 100 以上时，原版伤害被全局常量钳住导致打不死 |
-| **GreatWorkAPI** | APIExtension | 巨作添加整合接口（Lua）：`GreatWorkManager.AddGreatWork` / `AddGreatWorkToCity` |
-| **ModifierManagerAPI** | APIExtension | 修饰符挂接/摘除：`unit:AttachModifierByID(id)`、`ModifierManager.DetachModifierByID` / `GetCount` |
-| **UnitLevelAPI** | APIExtension | **单位等级写入**：`unit:GetExperience():SetLevel(n)`（引擎只有读，没有对外的写） |
+| **GreatWorkOptimizer** | BugFix | 缓解大后期 AI 计算巨作分配时的卡顿 |
+| **GreatWorkTypeLookup** | BugFix | 模组新增巨作类型无法被识别；同时解决**无法新增巨作槽**的问题（原版只认内置的那几个） |
+| **GreatWorkYieldStack** | BugFix | 多个来源的同种巨作产出加成不叠加，只有一条生效 |
+| **UnitDamageCap** | BugFix | 单位生命值超过 100 后伤害打不死（原版伤害上限被钉在 100） |
+| **GreatWorkAPI** | APIExtension | 给模组作者补上「添加巨作」的 Lua 接口 |
+| **ModifierManagerAPI** | APIExtension | 给模组作者补上「挂载 / 摘除修饰符」的 Lua 接口 |
+| **UnitLevelAPI** | APIExtension | 给模组作者补上「设置单位等级」的 Lua 接口（原版只能读不能写） |
 
 > `ModConfig`（全局 Lua 配置接口）**不在本工程**：它由 Global 侧 `RegisterGlobalScript` 注册 ——
 > 那个入口的语义就是"注册全局可用的接口"，loader 会挂到每一个脚本环境。详见

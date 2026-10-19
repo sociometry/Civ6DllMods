@@ -13,10 +13,10 @@ Civilization VI 的「基础插件集」Global 侧，跑在 [Civ6DllLoader] runt
 
 ## 模块清单
 
-| 模块 | 分类 | 功能 |
+| 模块 | 分类 | 解决什么问题 |
 | --- | --- | --- |
-| **UnlockModelLimit** | BugFix | 解除渲染资源上限（IB/VB 8192→16384，SPI 16384→32768），只改内存不改磁盘 |
-| **ModConfig** | APIExtension | 全局 Lua 键值持久化接口，数据落 `Documents\\My Games\\Sid Meier's Civilization VI\\ModConfigs\\<名字>.json` |
+| **UnlockModelLimit** | BugFix | 引擎的模型 / 材质数量上限：原版资源一多就报错甚至渲染失败，装后可支撑更大的模组规模 |
+| **ModConfig** | APIExtension | 模组作者读写配置文件没有现成接口：提供一组开箱即用的键值持久化 Lua API，用来保存玩家设置与进度数据 |
 
 ---
 

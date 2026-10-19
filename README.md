@@ -17,13 +17,13 @@
 
 | 工程 | 说明 |
 | --- | --- |
-| [Civ6BasePlugin](recipes/Global/Civ6BasePlugin/README.md) | 基础插件集。`UnlockModelLimit` 解除渲染资源上限（IB/VB 8192→16384，SPI 16384→32768）；`ModConfig` 提供全局 Lua 键值持久化接口 |
+| [Civ6BasePlugin](recipes/Global/Civ6BasePlugin/README.md) | 基础插件集。`UnlockModelLimit` 解除引擎的模型 / 材质数量上限，支撑更大的模组规模；`ModConfig` 给模组作者提供配置读写的 Lua 接口 |
 
 ### GameCore 域
 
 | 工程 | 说明 |
 | --- | --- |
-| [Civ6BasePlugin_GameCore](recipes/GameCore/Civ6BasePlugin_GameCore/README.md) | 基础插件集。4 个 BugFix（巨作分配优化 / 类型解析 / 产出叠加 / **单位伤害上限**）+ 3 个 Lua API 扩展（巨作 / 修饰符 / **单位等级**） |
+| [Civ6BasePlugin_GameCore](recipes/GameCore/Civ6BasePlugin_GameCore/README.md) | 基础插件集。修 4 个原版缺陷（巨作分配卡顿 / 巨作类型与槽位无法新增 / 产出加成不叠加 / **单位血量超 100 打不死**）+ 补 3 组 Lua 接口（巨作 / 修饰符 / 单位等级） |
 | [FourRing](recipes/GameCore/FourRing/README.md) | 最小实战 hook：`ComputePlotsFromRadius` 固定返回 43（调用点再加 18 得 61），验证按名取符号 + `InstallHook` |
 | [NewRequirements](recipes/GameCore/NewRequirements/README.md) | 新增自定义 Requirement：玩家属性阈值、地块道路类型 |
 | [AdjustPlotPropertyEffect](recipes/GameCore/AdjustPlotPropertyEffect/README.md) | 注入 `EFFECT_ADJUST_PLOT_PROPERTY` 的脚手架示范 |
