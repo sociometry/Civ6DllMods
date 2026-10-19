@@ -68,7 +68,7 @@
 
 仓库只带一个工具：`tools/rva_to_symbol.exe`。
 
-写插件时最费时的一步是"这个 RVA 到底是哪个函数"。它内嵌了 Loader 的符号库（单文件，编译期嵌入，不需要额外环境），输入 RVA 即可反查符号名：
+它内嵌了 Loader 的符号库（单文件，编译期嵌入，不需要额外环境），输入 RVA 即可反查符号名：
 
 ```text
 tools\rva_to_symbol.exe -gamecore 0x3A5A60          # GameCore_XP2_FinalRelease.dll
