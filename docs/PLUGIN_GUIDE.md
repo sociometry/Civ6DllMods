@@ -460,6 +460,8 @@ tools\rva_to_symbol.exe -dx12 0x37AB0 0x37DE0 --demangled
 
 ## 6. HookAPI 核心功能与使用示例
 
+本章按功能分组：§6.1 是所有插件都需要的初始化模板；§6.2–§6.3 是最常用的两种改游戏逻辑的手段（挂钩子与改字节）；§6.4–§6.8 是 Lua 与工具接口；**§6.9 是进阶内容**——只有当普通 C++ detour 表达不了你的需求时，才需要读它。
+
 ### 6.1 基础入口与兼容性防御
 
 ```cpp
@@ -501,6 +503,8 @@ if (target) {
     InstallHook(api, target, reinterpret_cast<void*>(&MyAttemptNewQuests), &g_origAttemptNewQuests);
 }
 ```
+
+**detour 必须是插件 DLL 里的真实函数。** Loader 会对 detour 地址做模块归属校验，运行期 `VirtualAlloc` / JIT 出来的地址会被拒绝。确实需要用机器码当 detour（改写寄存器、跳回函数中段）时，见 §6.9。
 
 ### 6.3 字节级内存补丁（Patch / Unpatch）
 
@@ -660,6 +664,288 @@ end)
   ```cpp
   void* pPlayer = api->GetPlayer(0); // 获取 0 号玩家指针（GameCore 专属）
   ```
+
+### 6.9 用 asmjit 生成 detour（进阶）
+
+有些 hook 不能用普通 C++ 函数当 detour：需要在进入原函数前改写寄存器、按条件跳回原函数中间、或者把一段极短的逻辑塞进目标函数的指令流里。这时可以用 asmjit 在运行期汇编出这段机器码。
+
+**这不是必需手段。** 只要普通 C++ detour 能满足需求，就用普通 detour——少一层机器码就少一类崩溃。
+
+---
+
+#### 6.9.1 硬约束一：detour 必须落在插件自己的模块内
+
+`InstallHook` 在安装前会对 **detour 地址**做归属校验：用 `GetModuleHandleExW(FROM_ADDRESS)` 反查它属于哪个已加载模块，再确认该模块是本进程登记过的插件。
+
+因此：
+
+| detour 的来源 | 结果 |
+|--------------|------|
+| 插件 DLL 里的普通函数 | ✅ 通过 |
+| 插件 DLL 里的自定义节（见下） | ✅ 通过 |
+| `VirtualAlloc` / `JitRuntime::add` 返回的 JIT 页 | ❌ 被拒，日志：`InstallHook rejected: caller/callback is not an active plugin` |
+| 堆内存 | ❌ 被拒 |
+
+**asmjit 的 `rt.add(&fn, &code)` 返回的 `fn` 就在 JIT 页上，不能直接当 detour 用。** 正确做法是把它当作"编码器"：拿到字节后 `memcpy` 进插件模块内的存储，再 `rt.release(fn)`。
+
+> 校验只针对 **detour 参数**。如果你不调 `InstallHook`，而是用 `Patch` 往游戏指令里写一条跳转、让控制流自己跳到 JIT 页，Loader 不检查跳转目标——但这属于另一条路线，见 §6.9.7。
+
+---
+
+#### 6.9.2 硬约束二：写入页和执行页要分开（W^X）
+
+需要一块"能被写、又能被执行"的内存。**不要**做成永久 RWX（`PAGE_EXECUTE_READWRITE`，或 `/SECTION:.uhook,RWE`）：
+
+- 任何一次越界写都能直接把数据变成可执行代码；
+- 写坏了不会立刻崩，而是延迟到某次调用跳进坏指令，那时调用栈与被写坏的那行已经无关，极难定位。
+
+正确的时间线是：
+
+```
+加载时   → RW    （能写，不能执行）
+生成完   → RX    （能执行，不能写）
+```
+
+用自定义节实现：
+
+```cpp
+// 声明为可读可写，【不可执行】
+#pragma section(".uhook", read, write)
+
+// C++17 inline：多个 TU 包含该头文件时只保留一份定义
+__declspec(allocate(".uhook")) alignas(4096) inline unsigned char g_detourCode[4096];
+```
+
+**不要**写 `#pragma section(".uhook", read, execute)` 配 `/SECTION:.uhook,RWE`——那是把节做成永久 RWX。也不要同时给 `write` 和 `execute`：MSVC 会报 C4330 并静默丢掉 `write`，最终得到的是 R+X 节，运行期一写就崩。
+
+封页：
+
+```cpp
+DWORD old = 0;
+VirtualProtect(g_detourCode, sizeof(g_detourCode), PAGE_EXECUTE_READ, &old);
+FlushInstructionCache(GetCurrentProcess(), g_detourCode, sizeof(g_detourCode));
+```
+
+`FlushInstructionCache` 是**必须**的。x64 上不调用"通常也能跑"，但那是巧合，不是保证。
+
+---
+
+#### 6.9.3 硬约束三：emit 的错误必须逐条检查
+
+这是最容易踩、且**完全没有报错**的坑。
+
+asmjit 的每个 emit 调用都会返回 `Error`，出错时那一条指令**不写进缓冲区**。问题在于 `JitRuntime::_add()` 只检查扁平化、重定位和长度，**不检查 emitter 曾经报过错**——它照样返回成功。
+
+所以只要有一处没检查返回值，就会出现：hook 体少了一条指令，却仍被装上。行为错乱，日志里一个字都没有。
+
+典型触发场景（x86-64 编码本身的限制，不是 asmjit 的 bug）：
+
+| 写法 | 结果 |
+|------|------|
+| `a.cmp(x86::rbx, 0x1_0000_0000ULL)` | ❌ `cmp r/m64, imm64` 不存在，只有 `imm32`（符号扩展） |
+| `a.cmp(x86::rbx, 0x1234)` | ✅ 落在 int32 内，正常编码 |
+| `a.mov(x86::rax, 0x1_0000_0000ULL)` | ✅ `mov r64, imm64`（`B8+` 形式）存在 |
+
+所以每一条 emit 都必须检查：
+
+```cpp
+#define ASMJIT_EMIT(expr)                                                        \
+    do {                                                                         \
+        asmjit::Error _e = (expr);                                               \
+        if (_e != asmjit::Error::kOk) {                                          \
+            api->Log("[Hook] asmjit emit failed @%d (%s): %s",                   \
+                __LINE__, #expr, asmjit::DebugUtils::error_as_string(_e));       \
+            return false;                                                        \
+        }                                                                        \
+    } while (0)
+```
+
+> 注意这个宏只能用在返回 `bool` 的函数里（失败路径是 `return false`）。返回 `void` 的函数要单独展开写。
+
+---
+
+#### 6.9.4 完整骨架
+
+```cpp
+#include "asmjit/x86.h"      // 1.20+；1.17 也用这个（它内部已包含 core.h）
+
+// 进程内共用一个 JitRuntime 即可；它只负责"给 CodeHolder 分配一块临时可执行页"。
+static asmjit::JitRuntime g_rt;
+
+// ---- 生成 + 写入 + 封页 + 安装 ----
+inline bool InstallAsmDetour(HookAPI* api, void* target, void** original,
+                             asmjit::CodeHolder& code) {
+    void* fn = nullptr;
+    asmjit::Error err = g_rt.add(&fn, &code);
+    if (err != asmjit::Error::kOk || !fn) {
+        api->Log("asmjit jit failed: %s", asmjit::DebugUtils::error_as_string(err));
+        return false;
+    }
+
+    const size_t size = code.code_size();          // 1.17 是 code.codeSize()
+    bool ok = false;
+    if (size > 0 && size <= sizeof(g_detourCode)) {
+        DWORD old = 0;
+        if (VirtualProtect(g_detourCode, sizeof(g_detourCode), PAGE_READWRITE, &old)) {
+            memcpy(g_detourCode, fn, size);
+            if (size < sizeof(g_detourCode)) {
+                memset(g_detourCode + size, 0xCC, sizeof(g_detourCode) - size);  // 尾部填 int3
+            }
+            // 必须在 InstallHook 之前切到 RX：入口一旦被改写，随时可能有人跳进来
+            if (VirtualProtect(g_detourCode, sizeof(g_detourCode), PAGE_EXECUTE_READ, &old)) {
+                FlushInstructionCache(GetCurrentProcess(), g_detourCode, sizeof(g_detourCode));
+                ok = api->InstallHook(target, g_detourCode, original);
+            }
+        }
+    } else {
+        api->Log("hook code size %zu exceeds slot capacity %zu", size, sizeof(g_detourCode));
+    }
+
+    g_rt.release(fn);                 // 字节已拷走，JIT 页立刻还掉
+    return ok;
+}
+
+// ---- 调用方（在 OnLoad 里）----
+asmjit::CodeHolder code;
+code.init(g_rt.environment());
+asmjit::x86::Assembler a(&code);
+ASMJIT_EMIT(a.push(asmjit::x86::rcx));
+ASMJIT_EMIT(a.mov(asmjit::x86::rax, (uint64_t)someAbsoluteAddress));  // 绝对地址一律用立即数
+// ...
+InstallAsmDetour(api, target, &g_orig, code);
+```
+
+注意骨架里 `InstallAsmDetour` 返回的 `bool` 要真的检查。装不上就应当让 `OnLoad` 返回失败（或至少记一条日志），不要静默继续——一个"看起来装上了、实际每次调用都走原函数"的 hook 比崩溃更难查。
+
+---
+
+> **如果是 Global 插件**：detour 代码会随模块一直驻留到进程退出，上面这套"写进自定义节"是安全的。
+> **如果是 GameCore 插件**：模块会在返回主菜单/换局时被真正卸载。Loader 在卸载前会先批量还原入口字节，
+> 因此正常情况下不会再有人跳进你的 detour；但**不要**在插件自己的清理路径里提前释放或改写这块代码。
+
+---
+
+#### 6.9.5 多条 detour 时：一个槽一页
+
+`VirtualProtect` 按内存页（4 KB）生效。如果多个 detour 挤在同一页：
+
+- 装第 2 条时把页切回 RW；
+- 已经在执行的第 1 条 detour 所在页同时变成不可执行 → 崩溃。
+
+要么给每个槽独立一页：
+
+```cpp
+__declspec(allocate(".uhook")) alignas(4096) inline unsigned char g_slot0[256];
+__declspec(allocate(".uhook")) alignas(4096) inline unsigned char g_slot1[256];
+__declspec(allocate(".uhook")) alignas(4096) inline unsigned char g_slot2[256];
+__declspec(allocate(".uhook")) alignas(4096) inline unsigned char g_slot3[256];
+
+inline unsigned char* const g_slots[4] = { g_slot0, g_slot1, g_slot2, g_slot3 };
+```
+
+这样切换第 2 个槽的权限时，第 1 个槽所在的页完全不受影响。
+
+要么一次性生成全部 detour、最后统一封页：适合所有 detour 都在 `OnLoad` 里装完、之后不再改的场景。**不要**在"装完一批、封页"之后又回头去改同一页。
+
+> 把 `alignas(4096)` 写进同一个数组（例如 `char g[4][256]`）不行——四段会连续排布、跨页，等于共用页。必须拆成四个独立变量，让链接器给每个都做页对齐。
+
+---
+
+#### 6.9.6 生成代码里不要出现"随基址变化"的引用
+
+`rt.add` 会把代码重定位到 JIT 页的地址，然后你把字节拷到别的地方。因此：
+
+- ✅ 绝对地址用立即数：`a.mov(reg, (uint64_t)ptr)`
+- ✅ 代码块内部的相对跳转（`a.jmp(label)`、`a.je(label)`）：整块一起搬，相对距离不变，安全
+- ❌ 引用"标签自身的绝对地址"、使用地址表：重定位时按 JIT 地址算好，搬走后就是错的
+
+需要绝对地址时，一律 `(uint64_t)` 强转后当立即数嵌入。
+
+另外，x86-64 **没有** `call imm64` 这种编码。要调绝对地址，必须经寄存器中转：
+
+```cpp
+ASMJIT_EMIT(a.mov(asmjit::x86::rax, (uint64_t)helper));
+ASMJIT_EMIT(a.call(asmjit::x86::rax));
+```
+
+---
+
+#### 6.9.7 什么时候根本不需要 detour
+
+如果需求只是"改掉某条指令里的一个常量"或"把一处条件跳转 nop 掉"，用 `Patch` 直接改字节即可，不需要 asmjit，也不需要自定义节：
+
+```cpp
+static uint8_t kNewBytes[] = { 0x48, 0xC7, 0xC0, 0x00, 0x02, 0x00, 0x00 };
+api->Patch(target, kNewBytes, sizeof(kNewBytes));
+```
+
+asmjit 在这种场景下唯一的价值，是让你不用手写那串十六进制——生成完 `memcpy` 进一个普通缓冲区再交给 `Patch` 就行，**不需要 `.uhook` 节，也不需要过 detour 归属校验**。
+
+判断标准很简单：
+
+| 你需要 | 方案 |
+|--------|------|
+| 在函数入口前后插逻辑 | 普通 C++ detour（§6.2） |
+| 改一条指令的立即数 / 操作码 | `Patch`（§6.3），字节可以手写也可以用 asmjit 生成 |
+| 改写寄存器、按条件跳回函数中段 | asmjit + 自定义节（本章） |
+
+---
+
+#### 6.9.8 工程配置
+
+| 项 | 值 |
+|----|----|
+| 平台 / 配置 | `x64` / `Release`（与插件其余部分一致） |
+| 预处理宏 | `ASMJIT_STATIC`（**必需**；缺了会把 asmjit 当 DLL 导入，报一堆 `__imp_` 未解析符号） |
+| 附加包含目录 | asmjit 头文件所在目录 |
+| 附加依赖项 | `asmjit.lib` |
+| 运行库 | 必须与 `asmjit.lib` 的编译方式一致。混用 `/MT` 与 `/MD` 会报 LNK4098 并埋下跨 CRT 分配/释放的隐患 |
+
+`ASMJIT_STATIC` 的作用只有一条：把 `ASMJIT_API` 从 `__declspec(dllimport)` 改成空。漏定义时所有 asmjit 符号都会变成"从 DLL 导入"，链接期报 `error LNK2019: 无法解析的外部符号 "__declspec(dllimport) ... asmjit::CodeHolder::CodeHolder"`。
+
+asmjit 源码本身是 zlib 许可，直接 vendored 一份到插件工程里最省事（头文件 + 用 CMake 编一次 `asmjit.lib`，注意 `ASMJIT_STATIC=ON` 和 `CMAKE_MSVC_RUNTIME_LIBRARY` 要与插件一致）。不需要额外依赖——asmjit 不依赖任何第三方库。
+
+---
+
+#### 6.9.9 asmjit 版本差异
+
+不同版本之间 API 命名变过，跨版本抄代码会编译失败：
+
+| | 1.17 | 1.20 及以后 |
+|---|---|---|
+| 成功错误码 | `kErrorOk` | `Error::kOk` |
+| 代码长度 | `code.codeSize()` | `code.code_size()` |
+| 错误串 | `DebugUtils::errorAsString()` | `DebugUtils::error_as_string()` |
+| 推荐头文件 | `asmjit/x86.h` | `asmjit/x86.h`（旧的 `asmjit/asmjit.h` 仍可用，但会打印 deprecated 提示） |
+| ABI 命名空间 | `asmjit::v1_17` | 随版本变化（如 `asmjit::v1_21`） |
+
+版本号在 `asmjit/core/api-config.h` 的 `ASMJIT_LIBRARY_VERSION`。**ABI 命名空间是链接期的版本闸门**：头文件与 .lib 版本不一致时，符号落在不同命名空间，链接直接失败，而不是运行时错乱。
+
+不同插件、插件与 Loader 之间各自静态链接自己的 asmjit，互不干扰。但**同一个插件内部**必须用同一份头文件与 .lib。
+
+---
+
+#### 6.9.10 排查表
+
+| 现象 | 原因 |
+|------|------|
+| `InstallHook rejected: caller/callback is not an active plugin` | detour 不在插件模块内（多半是把 `rt.add` 的返回值直接传进去了） |
+| 链接报 `__imp_...asmjit...` 未解析 | 忘了定义 `ASMJIT_STATIC` |
+| 链接报 `LNK4098` 默认库冲突 | 插件运行库（`/MT`、`/MD`）与 `asmjit.lib` 不一致 |
+| 装上后行为错乱、无任何日志 | emit 失败被静默丢弃，没做 `ASMJIT_EMIT` 检查 |
+| 第一条 detour 正常，装第二条后崩 | 多条 detour 共用一页，封页/回写互相打断 |
+| 首次调用就访问违例 | 页面还是 RW 就被执行；或 `InstallHook` 在切 RX 之前就调用了 |
+| 偶发崩溃、重启后不复现 | 缺 `FlushInstructionCache`，或生成代码里嵌了随基址变化的绝对引用 |
+| 换了一台机器/重编后 hook 装不上 | 节被优化掉（常量未使用），或 `alignas` 没写导致槽跨页 |
+
+自检：封页之后可以确认页面属性
+
+```cpp
+MEMORY_BASIC_INFORMATION mbi{};
+if (VirtualQuery(g_detourCode, &mbi, sizeof(mbi))) {
+    // 期望 PAGE_EXECUTE_READ（0x20）；若仍是 PAGE_READWRITE(0x04) 说明封页失败
+}
+```
 
 ---
 
