@@ -39,3 +39,8 @@ __pycache__/
 
 # 联网调研稿（体积大、含大量外链快照，不入库）
 docs/RESEARCH_NEW_FEATURES.md
+
+# 测试工具的编译产物（源码与 build.cmd 保留；tools/rva_to_symbol.exe 是刻意入库的单文件工具）
+tools/aob_pattern_test/*.exe
+tools/minijson_test/*.exe
+tools/modconfig_test/*.exe
