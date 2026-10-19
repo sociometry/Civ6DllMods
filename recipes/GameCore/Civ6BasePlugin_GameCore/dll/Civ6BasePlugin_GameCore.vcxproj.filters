@@ -29,10 +29,16 @@
 		<ClInclude Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.h">
 			<Filter>BugFix</Filter>
 		</ClInclude>
+		<ClInclude Include="BugFix\UnitDamageCap\UnitDamageCap.h">
+			<Filter>BugFix</Filter>
+		</ClInclude>
 		<ClInclude Include="APIExtension\GreatWorkAPI\GreatWorkAPI.h">
 			<Filter>APIExtension</Filter>
 		</ClInclude>
 		<ClInclude Include="APIExtension\ModifierManagerAPI\ModifierManagerAPI.h">
+			<Filter>APIExtension</Filter>
+		</ClInclude>
+		<ClInclude Include="APIExtension\UnitLevelAPI\UnitLevelAPI.h">
 			<Filter>APIExtension</Filter>
 		</ClInclude>
 			<Filter>APIExtension</Filter>
@@ -64,10 +70,16 @@
 		<ClCompile Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.cpp">
 			<Filter>BugFix</Filter>
 		</ClCompile>
+		<ClCompile Include="BugFix\UnitDamageCap\UnitDamageCap.cpp">
+			<Filter>BugFix</Filter>
+		</ClCompile>
 		<ClCompile Include="APIExtension\GreatWorkAPI\GreatWorkAPI.cpp">
 			<Filter>APIExtension</Filter>
 		</ClCompile>
 		<ClCompile Include="APIExtension\ModifierManagerAPI\ModifierManagerAPI.cpp">
+			<Filter>APIExtension</Filter>
+		</ClCompile>
+		<ClCompile Include="APIExtension\UnitLevelAPI\UnitLevelAPI.cpp">
 			<Filter>APIExtension</Filter>
 		</ClCompile>
 			<Filter>APIExtension</Filter>

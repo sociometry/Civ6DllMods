@@ -275,8 +275,9 @@ void GreatWorkAPI_Init(HookAPI* api) {
 	g_citiesFind = gc::ResolveVerified<CitiesFindFn>(api, kHookImageGameCoreXP2,
 		kTargetCitiesFind, kSigCitiesFind, sizeof(kSigCitiesFind), "GreatWorkAPI/Cities::Find");
 
+	// 只挂 gameplay：这两个接口操作的是引擎 gameplay 域对象（Culture / Buildings），
+	// UI 脚本环境用不到，也不该在那里暴露。
 	api->RegisterGameCoreScriptForGamePlay(&RegisterLuaGlobals);
-	api->RegisterGameCoreScriptForUI(&RegisterLuaGlobals);
 
 	api->Log("[GreatWorkAPI] symbols %s; GreatWorkManager.AddGreatWork/AddGreatWorkToCity registered",
 		SymbolsReady() ? "ok" : "incomplete (lua api returns false)");

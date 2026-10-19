@@ -1,6 +1,8 @@
 # FourRing — hook 示例：四环地块数
 
-把 `GameCore::City::CityHexspace::ComputePlotsFromRadius` 固定返回 **61**（四环格子总数），验证「按名取符号 + InstallHook」。
+把 `GameCore::City::CityHexspace::ComputePlotsFromRadius` 固定返回 **43**，让所有调用点的 `ComputePlotsFromRadius(2) + 18` 恰好得到 **61**（四环格子总数），验证「按名取符号 + InstallHook」。
+
+> 注意不是返回 61：调用点会再加 18，61 + 18 = 79 会越过 61 项环偏移表，导致幻影地块重复计入产出。
 
 ## 公式对照
 
@@ -12,7 +14,7 @@
 | 3 | 37 |
 | **4** | **61** |
 
-原函数：`f(0)=1; f(n)=f(n-1)+6*n`。恒返回 61 ≈ 按四环配额放宽。
+原函数：`f(0)=1; f(n)=f(n-1)+6*n`，即 `f(n)=3n(n+1)+1`。所有调用点实际用的是 `f(2)+18=37`（三环），因此返回 `61-18=43` 后得到 `43+18=61`（四环）。
 
 ## 构建
 
@@ -22,7 +24,7 @@ msbuild recipes\GameCore\FourRing\dll\FourRing.vcxproj /p:Configuration=Release 
 
 产物：`x64/Release/FourRing.dll`。接到自己的 mod 后看 `Civ6DllLoader_Loader.log`：
 
-`FourRing: hooked ComputePlotsFromRadius -> always 61`
+`FourRing: hooked ComputePlotsFromRadius -> always 43`
 
 ## 当前 Loader 兼容性与重载验证
 

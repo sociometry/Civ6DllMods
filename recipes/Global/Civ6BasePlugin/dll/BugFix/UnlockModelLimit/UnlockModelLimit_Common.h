@@ -25,15 +25,31 @@ inline HookAPI* g_api = nullptr;
 // asmjit JIT runtime（持有 hook 可执行代码的临时副本）
 inline asmjit::JitRuntime rt;
 
-// .uhook：插件 DLL 映像内的 RWX 节，存放 hook 的机器码（各 256 字节）。
-// runtime 用 GetModuleHandleExW(FROM_ADDRESS) 校验 detour 回调地址必须归属于
-// 已加载的插件 DLL；asmjit JIT 内存不属于任何模块会被拒
+// .uhook：插件 DLL 映像内的机器码槽，存放 asmjit 生成的 detour 体（各 256 字节）。
+//
+// 【为什么必须放在模块内】runtime 用 GetModuleHandleExW(FROM_ADDRESS) 校验 detour
+// 地址必须归属于已加载的插件 DLL；asmjit 的 JIT 页不属于任何模块，会被拒
 // （"InstallHook rejected: caller/callback is not an active plugin"）。
-// 注意：MSVC 在同时给出 write 与 execute 时会忽略 write（C4330）并生成
-// Read+Execute 节；运行期的可写性由 linker /SECTION:.uhook,RWE 保证（最终 RWX）。
-#pragma section(".uhook", read, execute)
-#pragma comment(linker, "/SECTION:.uhook,RWE")
-__declspec(allocate(".uhook")) alignas(16) inline unsigned char g_hookCode[4][256];
+//
+// 【W^X】节声明为 read+write（【不可执行】），不再用 /SECTION:.uhook,RWE 造永久 RWX。
+// 每个槽在 FinalizeAndInstall 里走一遍 "临时 RW -> 写入 -> 切回 RX -> 才 InstallHook"：
+//   * 永久 RWX 的代价：任何一次越界写都能把数据直接变成可执行代码；写坏了也不会立刻
+//     崩，而是延迟到某次调用跳进坏指令，那时栈早已与被写坏的那行无关。
+//   * 顺序不能反：入口字节一旦被 InstallHook 改写，游戏线程随时可能跳进 detour，
+//     此时槽所在页必须已经是 RX，否则执行违例。
+//
+// 【为什么每个槽独占一页】VirtualProtect 按页生效。若 4 个槽共用一页，安装第 2 个
+// hook 时把页切回 RW，就会让【已经在执行】的第 1 个 detour 变成不可执行而崩溃。
+// alignas(4096) 让每个槽各占一页，切换只影响自己。
+#pragma section(".uhook", read, write)
+__declspec(allocate(".uhook")) alignas(4096) inline unsigned char g_hookCode0[256];
+__declspec(allocate(".uhook")) alignas(4096) inline unsigned char g_hookCode1[256];
+__declspec(allocate(".uhook")) alignas(4096) inline unsigned char g_hookCode2[256];
+__declspec(allocate(".uhook")) alignas(4096) inline unsigned char g_hookCode3[256];
+inline unsigned char* const g_hookSlots[4] = {
+    g_hookCode0, g_hookCode1, g_hookCode2, g_hookCode3
+};
+inline constexpr size_t kHookSlotBytes = 256;
 
 // 各 hook 的 trampoline（InstallHook 的 original 槽位）
 inline uintptr_t g_origAddResource    = 0;
@@ -143,9 +159,49 @@ inline uint64_t ResolveSite(const HookInfo& info, const uint8_t* expect, size_t 
     } while (0)
 
 // ---------------------------------------------------------------------------
-// detour 安装辅助：asmjit 生成 hook 体 -> 拷入插件 DLL 的 .uhook(RWX) 节 ->
+// 把 asmjit 生成的 hook 体写进某个 .uhook 槽，并按 W^X 切页。
+//
+// 时间线：RW(节初始) -> 写入 -> RX -> 交给 InstallHook。
+// 只在【本槽】这一页上切换：四个槽各占独立页，不会波及已经在执行的其它 detour。
+// ---------------------------------------------------------------------------
+inline bool WriteHookCode(int slot, const void* src, size_t size, const char* name) {
+    if (slot < 0 || slot >= 4) {
+        g_api->Log("[UnlockModelLimit] invalid hook slot %d (%s)", slot, name);
+        return false;
+    }
+    if (size == 0 || size > kHookSlotBytes) {
+        g_api->Log("[UnlockModelLimit] hook code size %zu out of range (0, %zu] for %s",
+            size, kHookSlotBytes, name);
+        return false;
+    }
+    unsigned char* dst = g_hookSlots[slot];
+    DWORD oldProtect = 0;
+    // 节是 read+write：写入本身不需要改权限。这里显式再探一次，顺带拿到原权限，
+    // 万一被外部改过（例如调试器）也能恢复到我们期望的状态。
+    if (!VirtualProtect(dst, kHookSlotBytes, PAGE_READWRITE, &oldProtect)) {
+        g_api->Log("[UnlockModelLimit] VirtualProtect(RW) failed for %s err=%lu",
+            name, GetLastError());
+        return false;
+    }
+    memcpy(dst, src, size);
+    // 剩余字节清零：避免上一次安装残留的指令尾巴被误当代码执行。
+    if (size < kHookSlotBytes) {
+        memset(dst + size, 0xCC, kHookSlotBytes - size);
+    }
+    // 切到 RX：此后不可写、可执行。必须在 InstallHook 之前完成。
+    if (!VirtualProtect(dst, kHookSlotBytes, PAGE_EXECUTE_READ, &oldProtect)) {
+        g_api->Log("[UnlockModelLimit] VirtualProtect(RX) failed for %s err=%lu",
+            name, GetLastError());
+        return false;
+    }
+    FlushInstructionCache(GetCurrentProcess(), dst, kHookSlotBytes);
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// detour 安装辅助：asmjit 生成 hook 体 -> 写进插件 DLL 的 .uhook 槽（W^X 切页）->
 // InstallHook（runtime 校验 detour 地址必须归属于已加载的插件 DLL）。
-// slot: 0-3，对应 g_hookCode[4][256]。
+// slot: 0-3，对应 g_hookSlots[4]。
 // ---------------------------------------------------------------------------
 inline bool FinalizeAndInstall(uint64_t hookAddr, uintptr_t* origSlot, const char* name,
     asmjit::CodeHolder& code, int slot) {
@@ -157,22 +213,17 @@ inline bool FinalizeAndInstall(uint64_t hookAddr, uintptr_t* origSlot, const cha
             name, (unsigned long long)hookAddr, asmjit::DebugUtils::errorAsString(err));
         return false;
     }
-    size_t size = code.codeSize();
-    if (size > sizeof(g_hookCode[slot])) {
-        g_api->Log("[UnlockModelLimit] hook code too large for %s: %zu > %zu bytes",
-            name, size, sizeof(g_hookCode[slot]));
-        rt.release(func);
-        return false;
-    }
-    memcpy(g_hookCode[slot], func, size);
+    const size_t size = code.codeSize();
+    const bool written = WriteHookCode(slot, func, size, name);
     rt.release(func);
+    if (!written) return false;
 
-    if (!g_api->InstallHook((void*)hookAddr, (void*)g_hookCode[slot], (void**)origSlot)) {
+    if (!g_api->InstallHook((void*)hookAddr, (void*)g_hookSlots[slot], (void**)origSlot)) {
         g_api->Log("[UnlockModelLimit] InstallHook failed for %s @ 0x%llX (detour 0x%p)",
-            name, (unsigned long long)hookAddr, (void*)g_hookCode[slot]);
+            name, (unsigned long long)hookAddr, (void*)g_hookSlots[slot]);
         return false;
     }
-    g_api->Log("[UnlockModelLimit] hooked %s @ %p (detour %p)",
-        name, (void*)hookAddr, (void*)g_hookCode[slot]);
+    g_api->Log("[UnlockModelLimit] hooked %s @ %p (detour %p, %zu bytes)",
+        name, (void*)hookAddr, (void*)g_hookSlots[slot], size);
     return true;
 }

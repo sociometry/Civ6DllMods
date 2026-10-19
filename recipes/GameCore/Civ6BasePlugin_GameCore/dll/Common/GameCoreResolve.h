@@ -39,6 +39,86 @@ inline bool PrologueMatches(const void* target, const uint8_t* expect, size_t le
 	return target && expect && len > 0 && std::memcmp(target, expect, len) == 0;
 }
 
+// 支持 "??" 通配的版本。value 与 mask 各 len 字节，mask=0xFF 表示该字节必须相等，
+// mask=0x00 表示跳过。用于跨过 RIP 相对位移（disp32）这类随重定位变化的字节，
+// 让校验能延伸到位移之后的关键字节（例如函数的 retn）。
+inline bool PrologueMatchesMasked(const void* target, const uint8_t* value,
+	const uint8_t* mask, size_t len) {
+	if (!target || !value || !mask || len == 0) return false;
+	const auto* bytes = static_cast<const uint8_t*>(target);
+	for (size_t i = 0; i < len; ++i) {
+		if ((bytes[i] & mask[i]) != (value[i] & mask[i])) return false;
+	}
+	return true;
+}
+
+// 把 "48 8B 05 ?? ?? ?? ?? C3" 这样的文本特征码在编译期转成 value/mask 两个数组。
+// 允许 '?' 或 '??' 表示通配，其余必须是两位十六进制。
+template <size_t N>
+struct AobPattern {
+	uint8_t value[N]{};
+	uint8_t mask[N]{};
+	size_t count = 0;   // 实际字节数（N 是文本长度，比字节数大）
+	bool ok = false;
+};
+
+constexpr int HexNibble(char c) {
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+
+template <size_t N>
+constexpr AobPattern<N> ParseAob(const char (&text)[N]) {
+	AobPattern<N> out{};
+	size_t count = 0;
+	int hi = -1;      // 已读到的高半字节；-1 表示本字节尚未开始
+	bool wildcard = false;
+	for (size_t i = 0; i + 1 < N; ++i) {
+		const char c = text[i];
+		if (c == ' ' || c == '\t') {
+			if (hi >= 0 || wildcard) {
+				if (count < N) {
+					out.value[count] = wildcard ? 0 : static_cast<uint8_t>(hi << 4);
+					out.mask[count] = wildcard ? 0 : 0xFF;
+					++count;
+				}
+				hi = -1;
+				wildcard = false;
+			}
+			continue;
+		}
+		if (c == '?') { wildcard = true; continue; }
+		const int nib = HexNibble(c);
+		if (nib < 0) return out;   // 非法字符：ok 保持 false
+		if (hi < 0) {
+			hi = nib;
+		} else {
+			if (count < N) {
+				out.value[count] = static_cast<uint8_t>((hi << 4) | nib);
+				out.mask[count] = 0xFF;
+				++count;
+			}
+			hi = -1;
+		}
+	}
+	if (hi >= 0 || wildcard) {
+		if (count < N) {
+			out.value[count] = wildcard ? 0 : static_cast<uint8_t>(hi << 4);
+			out.mask[count] = wildcard ? 0 : 0xFF;
+			++count;
+		}
+	}
+	out.count = count;
+	out.ok = count > 0;
+	return out;
+}
+
+// 用法：
+//   constexpr auto kSigGameEdit = gc::ParseAob("48 8B 05 ?? ?? ?? ?? C3");
+//   gc::ResolveVerifiedAob<Fn>(api, image, info, "label", kSigGameEdit);
+
 // 组合动作：解析 + 校验前导字节。任一失败返回 nullptr 并（可选）打日志。
 template <typename T>
 inline T ResolveVerified(HookAPI* api, HookImageId image, const HookInfo& info,
@@ -49,6 +129,24 @@ inline T ResolveVerified(HookAPI* api, HookImageId image, const HookInfo& info,
 		return nullptr;
 	}
 	if (sig && sigLen && !PrologueMatches(reinterpret_cast<const void*>(fn), sig, sigLen)) {
+		if (api && label) api->Log("[%s] prologue mismatch - game updated? feature skipped", label);
+		return nullptr;
+	}
+	return fn;
+}
+
+// 同上，但前导字节用带通配的文本特征码（会跳过 disp32 之类的可变字节）。
+// pattern 以模板参数传入，ParseAob 才能当常量表达式求值。
+template <typename T, size_t N>
+inline T ResolveVerifiedAob(HookAPI* api, HookImageId image, const HookInfo& info,
+	const char* label, const AobPattern<N>& parsed) {
+	T fn = Resolve<T>(api, image, info, 16);
+	if (!fn) {
+		if (api && label) api->Log("[%s] target not resolvable (symbol + aob both failed)", label);
+		return nullptr;
+	}
+	if (parsed.ok && !PrologueMatchesMasked(reinterpret_cast<const void*>(fn),
+			parsed.value, parsed.mask, parsed.count)) {
 		if (api && label) api->Log("[%s] prologue mismatch - game updated? feature skipped", label);
 		return nullptr;
 	}

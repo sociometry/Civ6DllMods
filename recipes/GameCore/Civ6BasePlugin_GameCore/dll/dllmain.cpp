@@ -18,8 +18,10 @@
 #include "BugFix/GreatWorkOptimizer/GreatWorkOptimizer.h"
 #include "BugFix/GreatWorkTypeLookup/GreatWorkTypeLookup.h"
 #include "BugFix/GreatWorkYieldStack/GreatWorkYieldStack.h"
+#include "BugFix/UnitDamageCap/UnitDamageCap.h"
 #include "APIExtension/GreatWorkAPI/GreatWorkAPI.h"
 #include "APIExtension/ModifierManagerAPI/ModifierManagerAPI.h"
+#include "APIExtension/UnitLevelAPI/UnitLevelAPI.h"
 
 extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
 	// ABI 防御必须最先做（docs/PLUGIN_GUIDE.md §3.1）
@@ -60,10 +62,12 @@ extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
 	GreatWorkOptimizer_Init(api);
 	GreatWorkTypeLookup_Init(api);
 	GreatWorkYieldStack_Init(api);
+	UnitDamageCap_Init(api);
 
 	// ---- APIExtension ----
 	GreatWorkAPI_Init(api);
 	ModifierManagerAPI_Init(api);
+	UnitLevelAPI_Init(api);
 
 	api->Log("%s", "Civ6BasePlugin_GameCore: loaded");
 	return 1;
@@ -74,8 +78,10 @@ extern "C" __declspec(dllexport) void OnUnload() {
 	GreatWorkOptimizer_Shutdown();
 	GreatWorkTypeLookup_Shutdown();
 	GreatWorkYieldStack_Shutdown();
+	UnitDamageCap_Shutdown();
 	GreatWorkAPI_Shutdown();
 	ModifierManagerAPI_Shutdown();
+	UnitLevelAPI_Shutdown();
 }
 
 BOOL APIENTRY DllMain(HMODULE, DWORD, LPVOID) {

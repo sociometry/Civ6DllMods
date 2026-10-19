@@ -2,8 +2,10 @@
 #include "HookAPI.h"
 
 // Hex ring plot count: R0=1, R1=7, R2=19, R3=37, R4=61.
-// Forcing 61 unlocks 4-ring workable / district placement checks that use this helper.
-static constexpr int kPlotsForRing4 = 61;
+// Every caller computes "ComputePlotsFromRadius(2) + 18", so returning 61 here would
+// yield 61 + 18 = 79 and overrun the 61-entry ring offset tables. Returning 43 makes
+// all call sites land on 43 + 18 = 61, i.e. exactly the 4-ring plot count.
+static constexpr int kPlotsForRing4 = 43;
 
 static HookAPI* g_api = nullptr;
 

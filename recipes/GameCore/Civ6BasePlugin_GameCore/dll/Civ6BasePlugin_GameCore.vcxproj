@@ -55,11 +55,11 @@
 		<ClCompile>
 			<WarningLevel>Level3</WarningLevel>
 			<SDLCheck>true</SDLCheck>
-			<PreprocessorDefinitions>_DEBUG;_WINDOWS;_USRDLL;CIV6_PLUGIN_GAMECORE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+			<PreprocessorDefinitions>_DEBUG;_WINDOWS;_USRDLL;CIV6_PLUGIN_GAMECORE;ASMJIT_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
 			<ConformanceMode>true</ConformanceMode>
 			<PrecompiledHeader>Use</PrecompiledHeader>
 			<PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-			<AdditionalIncludeDirectories>$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+			<AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
 			<LanguageStandard>stdcpp20</LanguageStandard>
 			<AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
 		</ClCompile>
@@ -67,6 +67,8 @@
 			<SubSystem>Windows</SubSystem>
 			<GenerateDebugInformation>true</GenerateDebugInformation>
 			<EnableUAC>false</EnableUAC>
+			<AdditionalLibraryDirectories>$(ProjectDir)lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+			<AdditionalDependencies>asmjit.lib;%(AdditionalDependencies)</AdditionalDependencies>
 		</Link>
 	</ItemDefinitionGroup>
 	<ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -75,11 +77,12 @@
 			<FunctionLevelLinking>true</FunctionLevelLinking>
 			<IntrinsicFunctions>true</IntrinsicFunctions>
 			<SDLCheck>true</SDLCheck>
-			<PreprocessorDefinitions>NDEBUG;_WINDOWS;_USRDLL;CIV6_PLUGIN_GAMECORE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+			<PreprocessorDefinitions>NDEBUG;_WINDOWS;_USRDLL;CIV6_PLUGIN_GAMECORE;ASMJIT_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+			<RuntimeLibrary>MultiThreaded</RuntimeLibrary>
 			<ConformanceMode>true</ConformanceMode>
 			<PrecompiledHeader>Use</PrecompiledHeader>
 			<PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-			<AdditionalIncludeDirectories>$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+			<AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
 			<LanguageStandard>stdcpp20</LanguageStandard>
 			<AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
 		</ClCompile>
@@ -87,14 +90,18 @@
 			<SubSystem>Windows</SubSystem>
 			<GenerateDebugInformation>true</GenerateDebugInformation>
 			<EnableUAC>false</EnableUAC>
+			<AdditionalLibraryDirectories>$(ProjectDir)lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+			<AdditionalDependencies>asmjit.lib;%(AdditionalDependencies)</AdditionalDependencies>
 		</Link>
 	</ItemDefinitionGroup>
 	<ItemGroup>
 		<ClInclude Include="BugFix\GreatWorkOptimizer\GreatWorkOptimizer.h" />
 		<ClInclude Include="BugFix\GreatWorkTypeLookup\GreatWorkTypeLookup.h" />
 		<ClInclude Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.h" />
+		<ClInclude Include="BugFix\UnitDamageCap\UnitDamageCap.h" />
 		<ClInclude Include="APIExtension\GreatWorkAPI\GreatWorkAPI.h" />
 		<ClInclude Include="APIExtension\ModifierManagerAPI\ModifierManagerAPI.h" />
+		<ClInclude Include="APIExtension\UnitLevelAPI\UnitLevelAPI.h" />
 		<ClInclude Include="Common\GameCoreResolve.h" />
 		<ClInclude Include="HookAPI.h" />
 		<ClInclude Include="framework.h" />
@@ -104,8 +111,10 @@
 		<ClCompile Include="BugFix\GreatWorkOptimizer\GreatWorkOptimizer.cpp" />
 		<ClCompile Include="BugFix\GreatWorkTypeLookup\GreatWorkTypeLookup.cpp" />
 		<ClCompile Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.cpp" />
+		<ClCompile Include="BugFix\UnitDamageCap\UnitDamageCap.cpp" />
 		<ClCompile Include="APIExtension\GreatWorkAPI\GreatWorkAPI.cpp" />
 		<ClCompile Include="APIExtension\ModifierManagerAPI\ModifierManagerAPI.cpp" />
+		<ClCompile Include="APIExtension\UnitLevelAPI\UnitLevelAPI.cpp" />
 		<ClCompile Include="dllmain.cpp" />
 		<ClCompile Include="pch.cpp">
 			<PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>

@@ -13,6 +13,10 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "PatchExe", "recipes\Global\
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NewRequirements", "recipes\GameCore\NewRequirements\dll\NewRequirements.vcxproj", "{70209ECB-5708-439C-A7DA-B2D7B361F2C5}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Civ6BasePlugin_Global", "recipes\Global\Civ6BasePlugin\dll\Civ6BasePlugin_Global.vcxproj", "{919bcec6-049e-4000-83d1-1567cff3a224}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Civ6BasePlugin_GameCore", "recipes\GameCore\Civ6BasePlugin_GameCore\dll\Civ6BasePlugin_GameCore.vcxproj", "{3D7C1A62-5E84-4B90-9C13-2F8A6D0E4B57}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -45,6 +49,18 @@ Global
 		{B19F9276-7E48-4A75-A633-81C929C91B06}.Release|x64.ActiveCfg = Release|x64
 		{B19F9276-7E48-4A75-A633-81C929C91B06}.Release|x64.Build.0 = Release|x64
 		{B19F9276-7E48-4A75-A633-81C929C91B06}.Release|x86.ActiveCfg = Release|x64
+		{919bcec6-049e-4000-83d1-1567cff3a224}.Debug|x64.ActiveCfg = Debug|x64
+		{919bcec6-049e-4000-83d1-1567cff3a224}.Debug|x64.Build.0 = Debug|x64
+		{919bcec6-049e-4000-83d1-1567cff3a224}.Debug|x86.ActiveCfg = Debug|x64
+		{919bcec6-049e-4000-83d1-1567cff3a224}.Release|x64.ActiveCfg = Release|x64
+		{919bcec6-049e-4000-83d1-1567cff3a224}.Release|x64.Build.0 = Release|x64
+		{919bcec6-049e-4000-83d1-1567cff3a224}.Release|x86.ActiveCfg = Release|x64
+		{3D7C1A62-5E84-4B90-9C13-2F8A6D0E4B57}.Debug|x64.ActiveCfg = Debug|x64
+		{3D7C1A62-5E84-4B90-9C13-2F8A6D0E4B57}.Debug|x64.Build.0 = Debug|x64
+		{3D7C1A62-5E84-4B90-9C13-2F8A6D0E4B57}.Debug|x86.ActiveCfg = Debug|x64
+		{3D7C1A62-5E84-4B90-9C13-2F8A6D0E4B57}.Release|x64.ActiveCfg = Release|x64
+		{3D7C1A62-5E84-4B90-9C13-2F8A6D0E4B57}.Release|x64.Build.0 = Release|x64
+		{3D7C1A62-5E84-4B90-9C13-2F8A6D0E4B57}.Release|x86.ActiveCfg = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

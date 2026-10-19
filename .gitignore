@@ -33,3 +33,9 @@ stub_out/
 __pycache__/
 *.pyc
 *.pyo
+
+# IDE / agent 缓存
+.serena/
+
+# 联网调研稿（体积大、含大量外链快照，不入库）
+docs/RESEARCH_NEW_FEATURES.md

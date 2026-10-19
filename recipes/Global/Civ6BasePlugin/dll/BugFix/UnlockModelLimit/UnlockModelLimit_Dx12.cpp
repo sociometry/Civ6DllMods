@@ -8,7 +8,7 @@
 // 混在一个文件里改一边会很容易误伤另一边。
 //
 // 共享的基础设施（PatchBytes / DecodeInsn / ResolveExe / FinalizeAndInstall /
-// g_api / rt / g_hookCode / g_exeImage / g_patchedAddrs）在 UnlockModelLimit_Common.h。
+// g_api / rt / g_hookSlots / g_exeImage / g_patchedAddrs）在 UnlockModelLimit_Common.h。
 //
 // 与 DX11 的关键差异：
 //   1. 【整条指令替换】不再手算 disp32 增量 —— 见 dx12_ReplaceInsn / dx12_AsmMemInsn。
