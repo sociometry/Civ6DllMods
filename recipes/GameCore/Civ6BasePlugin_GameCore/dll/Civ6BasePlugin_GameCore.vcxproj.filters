@@ -26,6 +26,9 @@
 		<ClInclude Include="BugFix\GreatWorkTypeLookup\GreatWorkTypeLookup.h">
 			<Filter>BugFix</Filter>
 		</ClInclude>
+		<ClInclude Include="BugFix\GreatWorkPreserve\GreatWorkPreserve.h">
+			<Filter>BugFix</Filter>
+		</ClInclude>
 		<ClInclude Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.h">
 			<Filter>BugFix</Filter>
 		</ClInclude>
@@ -65,6 +68,9 @@
 			<Filter>BugFix</Filter>
 		</ClCompile>
 		<ClCompile Include="BugFix\GreatWorkTypeLookup\GreatWorkTypeLookup.cpp">
+			<Filter>BugFix</Filter>
+		</ClCompile>
+		<ClCompile Include="BugFix\GreatWorkPreserve\GreatWorkPreserve.cpp">
 			<Filter>BugFix</Filter>
 		</ClCompile>
 		<ClCompile Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.cpp">

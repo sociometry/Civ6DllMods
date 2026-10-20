@@ -17,6 +17,7 @@
 
 #include "BugFix/GreatWorkOptimizer/GreatWorkOptimizer.h"
 #include "BugFix/GreatWorkTypeLookup/GreatWorkTypeLookup.h"
+#include "BugFix/GreatWorkPreserve/GreatWorkPreserve.h"
 #include "BugFix/GreatWorkYieldStack/GreatWorkYieldStack.h"
 #include "BugFix/UnitDamageCap/UnitDamageCap.h"
 #include "APIExtension/GreatWorkAPI/GreatWorkAPI.h"
@@ -62,6 +63,7 @@ extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
 	GreatWorkOptimizer_Init(api);
 	GreatWorkTypeLookup_Init(api);
 	GreatWorkYieldStack_Init(api);
+	GreatWorkPreserve_Init(api);
 	UnitDamageCap_Init(api);
 
 	// ---- APIExtension ----
@@ -78,6 +80,7 @@ extern "C" __declspec(dllexport) void OnUnload() {
 	GreatWorkOptimizer_Shutdown();
 	GreatWorkTypeLookup_Shutdown();
 	GreatWorkYieldStack_Shutdown();
+	GreatWorkPreserve_Shutdown();
 	UnitDamageCap_Shutdown();
 	GreatWorkAPI_Shutdown();
 	ModifierManagerAPI_Shutdown();

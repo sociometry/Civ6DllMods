@@ -18,8 +18,9 @@ Civilization VI 的 **GameCore 生命周期插件工程**，跑在 [Civ6DllLoade
 | **GreatWorkOptimizer** | BugFix | 缓解大后期 AI 计算巨作分配时的卡顿 |
 | **GreatWorkTypeLookup** | BugFix | 模组新增巨作类型无法被识别；同时解决**无法新增巨作槽**的问题（原版只认内置的那几个） |
 | **GreatWorkYieldStack** | BugFix | 多个来源的同种巨作产出加成不叠加，只有一条生效 |
+| **GreatWorkPreserve** | BugFix | 改变额外巨作槽数量时，该建筑已放置的巨作全部丢失 |
 | **UnitDamageCap** | BugFix | 单位生命值超过 100 后伤害打不死（原版伤害上限被钉在 100） |
-| **GreatWorkAPI** | APIExtension | 给模组作者补上「添加巨作」的 Lua 接口 |
+| **GreatWorkAPI** | APIExtension | 给模组作者补上「添加巨作」的 Lua 接口（支持同种巨作多份） |
 | **ModifierManagerAPI** | APIExtension | 给模组作者补上「挂载 / 摘除修饰符」的 Lua 接口 |
 | **UnitLevelAPI** | APIExtension | 给模组作者补上「设置单位等级」的 Lua 接口（原版只能读不能写） |
 
@@ -176,11 +177,104 @@ unit:GetExperience():SetLevel(3)   -- -> boolean
 
 ---
 
+## 3. GreatWorkPreserve —— 改巨作槽数会吞掉已放置的巨作
+
+### 缺陷
+
+`Buildings::ChangeExtraGreatWorkSlots` 在建筑**已建成**时成对调用两个函数：
+
+```c
+RemoveGreatWorkSlots(this, buildType);   // 删掉该建筑的巨作记录，槽数组一并释放
+AddGreatWorkSlots(this, buildType);      // 只按定义重建【空槽】
+```
+
+`AddGreatWorkSlots` 从不读取旧内容，重建出来的每个 `greatWorkIndex` 都是 `-1`。
+两次调用之间**没有任何数据传递** —— 所以该建筑上已放置的巨作全部丢失，且不归还玩家。
+
+触发场景：`AdjustExtraGreatWorkSlots` 效果改变某建筑的巨作槽数量（政策卡 / 奇观 / 伟人能力）。
+
+### 修法：单个钩子 + 私有暂存
+
+只钩 `ChangeExtraGreatWorkSlots`（**public** 成员，RVA `0x109C50`）：
+
+```
+Hook ChangeExtraGreatWorkSlots
+  ├─ changeNum == 0 → 原样放行（引擎不会做任何重建）
+  ├─ 入口：CapturePendingSlots(...)        把有效槽内容存进私有暂存
+  ├─ 调原函数：内部 Remove → Add，重建出全空槽
+  └─ 出口：RestorePendingSlots(...)        按槽位把暂存内容填回空槽
+```
+
+stash 是插件私有的 `std::vector`，不持有任何游戏堆指针。抓取发生在重建**之前**，
+所以不依赖堆复用之类的巧合；出口用完立刻清空，不存在跨调用的残留。
+
+#### 为什么只钩一个
+
+`ChangeExtraGreatWorkSlots` **只有一个出口**（函数体没有提前 `return`），
+一次「入口存 + 出口填」即可完整覆盖。
+
+早期版本钩的是它内部调用的那两个 private 函数（`Add`/`RemoveGreatWorkSlots`），
+而那两者还有别的调用者，会被误伤：
+
+| 调用者 | 是否需要保存/恢复 | 双钩子的后果 |
+| --- | --- | --- |
+| `ChangeExtraGreatWorkSlots` | ✅ 需要 | 正常 |
+| `RemoveBuilding` / `RemoveAllBuildings` | ❌ 拆建筑，之后不会再 `Add` | 暂存一直残留，等下一个同 `buildType` 的 `Add` 误消费 |
+| `SetBuildingLocation` | ❌ 建新建筑，本来就没有旧巨作 | 「恢复」多余 |
+
+改成单钩子后，这些问题都不存在，而且钩的是 public 符号，比同族 private 函数更稳。
+
+### 三条红线（踩过坑，勿改）
+
+1. **绝不改变 `greatWorkBuildings` 数组的结构** —— 不去重、不合并、不搬移元素、不改 `count`。
+   早期版本用 `memcpy` 把尾项搬到中间再 `--count`，结果 `MOVE_GREAT_WORK` 期间按数组下标
+   定位的写入全部错位，表现为「移动巨作后其它巨作位置乱掉」。
+2. **只写 `greatWorkIndex`**，不改 `slotType`、数组指针、`count`。
+3. **回填只填空槽**（`greatWorkIndex == -1`），不覆盖已有内容 —— 即使与 `MOVE_GREAT_WORK`
+   交错，也不会把玩家刚移动的巨作冲掉。
+
+### 回填的两级策略
+
+| 情况 | 做法 |
+| --- | --- |
+| 重建后槽的**数量与 `slotType` 序列完全一致** | 按绝对槽位下标还原，最精确 |
+| 序列变了（本次改动改变了槽布局） | 退化为按 `slotType` 分组、组内顺序填充；宁可少填也不错填 |
+
+### 结构体布局（反编译核实）
+
+```
+Buildings (+0x170)
+  +0x0C8  GreatWorkInfo*  greatWorkBuildings   // 元素 0x20 字节
+  +0x0D8  int             greatWorkBuildingsCount
+
+GreatWorkInfo (0x20)
+  +0x00 int              BuildingType
+  +0x08 GreatWorkSlot*   GreatWorks
+  +0x10 int              GreatWorkSlotCount
+  +0x18 int              GreatWorkNum
+
+GreatWorkSlot (0x08)
+  +0x00 GreatWorkSlotTypes  slotType
+  +0x04 GreatWorkListIndex  greatWorkIndex   // -1 = 空
+```
+
+### 定位
+
+| 目标 | 符号 | 说明 |
+| --- | --- | --- |
+| `Buildings::ChangeExtraGreatWorkSlots` | `HookName`（demangled）+ AOB 兜底 | **public** 成员，RVA `0x109C50`，序言 20 字节唯一命中 |
+
+签名：`void ChangeExtraGreatWorkSlots(Buildings*, BuildingTypes, GreatWorkSlotTypes, int changeNum)`。
+
+---
 ## 兼容性取址
 
-所有目标统一走 `HookName(符号名)` 主路径 + 唯一 AOB 兜底 + `PrologueMatches` 校验
-（见 `dll/Common/GameCoreResolve.h`）。裸 RVA 在符号库与当前映像对不上时会被 Loader
-**原样透传**，等于把钩子装到错误的函数上。
+所有目标统一走 `HookName(符号名)` 主路径 + 唯一 AOB 兜底（见 `dll/Common/GameCoreResolve.h`）。
+裸 RVA 在符号库与当前映像对不上时会被 Loader **原样透传**，等于把钩子装到错误的函数上。
+
+> **不再做函数序言校验**（Prologue Check）。函数入口会被别的插件 hook 改写成
+> `E9 xx xx xx xx`，此时"比对原始入口字节"必然失败，而失败原因与"游戏更新"无法区分。
+> 相关条件与例外见 [插件开发指南 §5.9](../../../docs/PLUGIN_GUIDE.md)。
 
 符号名一律用 **demangled** 形式（`tools/rva_to_symbol.exe` 反查得到），可读性最好：
 
@@ -236,11 +330,12 @@ recipes/GameCore/Civ6BasePlugin_GameCore/
     ├── dllmain.cpp                          # OnLoad / OnUnload
     ├── include/asmjit/                      # vendored asmjit（仅 UnitDamageCap 用）
     ├── lib/asmjit.lib
-    ├── Common/GameCoreResolve.h             # 兼容性取址（符号 + AOB + 前导字节校验）
+    ├── Common/GameCoreResolve.h             # 兼容性取址（符号名主路径 + AOB 兜底）
     ├── BugFix/
     │   ├── GreatWorkOptimizer/
     │   ├── GreatWorkTypeLookup/
     │   ├── GreatWorkYieldStack/
+    │   ├── GreatWorkPreserve/
     │   └── UnitDamageCap/
     └── APIExtension/
         ├── GreatWorkAPI/
@@ -280,6 +375,7 @@ Civ6BasePlugin_GameCore: OnLoad
 [GreatWorkTypeLookup] GreatWorkSlotType hooked; resolver=ok (modded types now resolvable)
 [GreatWorkTypeLookup] GreatWorkObjectType hooked; resolver=ok (modded types now resolvable)
 [GreatWorkYieldStack] hooked GetGreatWorkYieldChange; great work yields now stack
+[GreatWorkPreserve] active: extra great work slot changes keep existing great works
 [UnitDamageCap] patched SetDamage clamp bound -> Unit::GetMaxDamage()
 [GreatWorkAPI] symbols ok; GreatWorkManager.AddGreatWork/AddGreatWorkToCity registered
 [ModifierManager] unit-method inject: reg=1 pushed=1 (unit:AttachModifierByID(id))
@@ -287,8 +383,17 @@ Civ6BasePlugin_GameCore: OnLoad
 Civ6BasePlugin_GameCore: loaded
 ```
 
-任一模块出现 `target not resolvable` / `prologue mismatch` 说明游戏更新后该目标漂移，
+任一模块出现 `target not resolvable` 说明游戏更新后该目标漂移，
 **该模块自动跳过、其余模块照常工作**，不会崩。
+
+**验证 GreatWorkPreserve**：先在某建筑的巨作槽里放几个巨作，再触发一次改槽数
+（带 `AdjustExtraGreatWorkSlots` 的政策卡 / 奇观），巨作应保留，日志出现：
+
+```
+[GreatWorkPreserve] buildingType=1 slotType=7 change=+2 restored=3
+```
+
+`restored` 就是成功保住的巨作数量。
 
 4. FireTuner 里验证 Lua 扩展：
 

@@ -6,10 +6,10 @@
 //   1) 删除已从 HookAPI.h 移除的 RegisterGameCoreReady / RegisterGameCoreTeardown：
 //      本工程是 GameCore 插件，OnLoad 执行时 GameCore 已加载完毕，代际回调没有意义；
 //      退局时 Loader 按 owner 自动回滚钩子。
-//   2) 取址从"裸 RVA + 前导字节哨兵"改为 HookName(符号) + AOB 兜底（见 Common/GameCoreResolve.h）：
+//   2) 取址从"裸 RVA + 序言特征码"改为 HookName(符号) + AOB 兜底（见 Common/GameCoreResolve.h）：
 //      裸 RVA 在符号库与当前映像对不上时会被 Loader 原样透传，等于把钩子装到错误函数上。
 //   3) 人类玩家判定改为按符号名解析 Player::Instance::IsHuman（直调用，不装钩），
-//      并用前导字节校验形态；解析/校验失败时人类跳过分支自动失效
+//      解析失败时人类跳过分支自动失效
 //      （退回原版全量重算），不会误伤 AI。
 //   4) 所有日志从逐次执行降为"每 N 次/首次"打印，避免 O(G^3) 重算路径被日志拖慢。
 //
@@ -52,23 +52,23 @@ constexpr HookInfo kTargetKnapsack = HookName(
 	"GameCore::BOUNDEDKNAPSACK_ALGORITHM::bounded_knapsack",
 	"44 89 44 24 18 55 57 41 55 41 57 48 8D 6C 24 C8 48 81 EC 38 01 00 00");
 
-// GameCore::Definitions::GetBuildingDefinitions —— 尾调用包装器，前导字节稳定。
+// GameCore::Definitions::GetBuildingDefinitions —— 尾调用包装器，序言稳定。
 constexpr HookInfo kTargetBuildingDefs = HookName(
 	"GameCore::Definitions::GetBuildingDefinitions",
 	"48 83 EC 28 E8 ?? ?? ?? ?? 48 05 20 04 00 00 48 83 C4 28 C3");
 
 // GameCore::Player::Instance::IsHuman —— 纯函数，直调用（不装钩）。
-// 前导字节：sub rsp,28h; mov edx,[rcx+0D8h]（+0xD8 = PlayerID，与遍历链的认知互证）。
+// 序言：sub rsp,28h; mov edx,[rcx+0D8h]（+0xD8 = PlayerID，与遍历链的认知互证）。
 // 注意：该前缀在当前映像里有 7 处同形命中（引擎把这段"取玩家配置"的样板内联了很多份），
 // 所以**不带 AOB 兜底**——带上只会随机命中别的函数。符号名本身唯一，够用。
 constexpr HookInfo kTargetPlayerIsHuman =
 	HookName("GameCore::Player::Instance::IsHuman");
 
-// 前导字节哨兵（符号库跨版本对齐失败时，避免把钩子装到"名字对但函数换了"的位置）。
+// 序言特征码【已移除】：入口可能被其它插件 hook/patch 改写，比对原始字节会误判。
+// 相关参数仍保留在各 ResolveVerified 调用里以兼容接口，但不再被使用。
+// 详见 Common/GameCoreResolve.h 顶部说明。
 constexpr uint8_t kSigExecute[8] = { 0x48, 0x8B, 0xC4, 0x48, 0x89, 0x48, 0x08, 0x55 };
 constexpr uint8_t kSigKnapsack[8] = { 0x44, 0x89, 0x44, 0x24, 0x18, 0x55, 0x57, 0x41 };
-constexpr uint8_t kSigBuildingDefs[5] = { 0x48, 0x83, 0xEC, 0x28, 0xE8 };
-constexpr uint8_t kSigPlayerIsHuman[8] = { 0x48, 0x83, 0xEC, 0x28, 0x8B, 0x91, 0xD8, 0x00 };
 
 // ---------------------------------------------------------------------------
 // 结构体偏移（反汇编复核，见文件头）
@@ -255,23 +255,14 @@ void GreatWorkOptimizer_Init(HookAPI* api) {
 	g_api = api;
 
 	// 直调用符号（不装钩）：拿不到就降级，不阻塞其余功能。
+	// 注意：这里不做序言校验 —— 入口可能已被其它插件 hook/patch 改写，
+	// 比对原始字节会误判成"游戏更新了"。详见 Common/GameCoreResolve.h 顶部说明。
 	g_getBuildingDefinitions = gc::Resolve<GetBuildingDefinitionsFn>(
 		api, kHookImageGameCoreXP2, kTargetBuildingDefs, 16);
-	if (g_getBuildingDefinitions &&
-		!gc::PrologueMatches(reinterpret_cast<const void*>(g_getBuildingDefinitions),
-			kSigBuildingDefs, sizeof(kSigBuildingDefs))) {
-		g_getBuildingDefinitions = nullptr;
-	}
 
-	// 人类玩家判定：符号名唯一，AOB 兜底（前导 8 字节太短、同形函数多，这里不挂 AOB，
-	// 只靠符号名 + 前导字节校验）。
+	// 人类玩家判定：只靠符号名（该符号唯一）。
 	g_playerIsHuman = gc::Resolve<PlayerIsHumanFn>(api, kHookImageGameCoreXP2,
 		kTargetPlayerIsHuman, 16);
-	if (g_playerIsHuman &&
-		!gc::PrologueMatches(reinterpret_cast<const void*>(g_playerIsHuman),
-			kSigPlayerIsHuman, sizeof(kSigPlayerIsHuman))) {
-		g_playerIsHuman = nullptr;
-	}
 
 	unsigned installed = 0;
 

@@ -35,12 +35,12 @@ namespace {
 // 目标描述
 // ---------------------------------------------------------------------------
 // 只有修饰名、不带 AOB 兜底的目标，原因都是"前缀在当前映像里不唯一"（实测命中数）：
-//   ScopedInstance<*,*>::GetInstance 的四个实例   731 处（三者前导字节完全相同）
+//   ScopedInstance<*,*>::GetInstance 的四个实例   731 处（三者序言完全相同）
 //   IPlayer::GetPlayerInstance                    109 处
 //   std::string::assign                            82 处
 //   MakeObject(Unit/City/Player)                    3 处（正好是这三个重载）
 // 命中多处时 Loader 只取第一个，兜底等于随机跳转，所以宁可放弃也不乱指。
-// 它们的修饰名本身唯一，符号名解析 + 前导字节校验已足够。
+// 它们的修饰名本身唯一，符号名解析已足够。
 //
 // 前缀唯一（1 处）的目标才带 AOB 兜底，见下面 kTargetGetModifiersOwnedBy 等。
 constexpr HookInfo kTargetUnitGetInstance = HookName(
@@ -108,7 +108,7 @@ constexpr HookInfo kTargetHandleGet = HookName(
 	"GameCore::AI::Control::Handle::get",
 	"48 8B 01 C3 CC CC CC CC CC CC CC CC CC CC CC CC 48 83 EC 28 48 8B C2");
 
-// 前导字节哨兵。注意这些是"粗校验"：只确认目标还是同一族函数，不区分族内成员。
+// 序言特征码（已停用）。注意这些是"粗校验"：只确认目标还是同一族函数，不区分族内成员。
 //   kSigScopedInstance   Unit/City/District 三个 GetInstance 共用（模板实例化，头部逐字节相同）
 //   kSigMakeObject       Unit/City/Player 三个 MakeObject 共用
 // 族内成员靠修饰名区分，修饰名本身是唯一的；哨兵只拦"符号库指到无关函数"。
@@ -121,10 +121,8 @@ constexpr uint8_t kSigAttach[8]          = { 0x40, 0x53, 0x57, 0x41, 0x54, 0x41,
 constexpr uint8_t kSigClear[8]           = { 0x48, 0x83, 0xEC, 0x28, 0x4C, 0x8D, 0x49, 0x60 };
 constexpr uint8_t kSigGetModifiersOwnedBy[8] = { 0x48, 0x89, 0x5C, 0x24, 0x18, 0x55, 0x41, 0x56 };
 constexpr uint8_t kSigGetModifierOwnedByCount[8] = { 0x41, 0x54, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83 };
-// Game::Edit 是 mov rax, cs: ms_pkCurrentGame ; retn，中间 4 字节是 RIP 相对位移。
-// 用带通配的特征码跨过 disp32，把校验延伸到 retn——否则只能比前 3 字节，
-// 拦不住"符号库指到另一条 mov rax, [rip+xxx]"以外的形态。
-constexpr auto kSigGameEdit = gc::ParseAob("48 8B 05 ?? ?? ?? ?? C3");
+// 序言校验已移除（入口可能被其它插件改写，比对会误判）。
+// Game::Edit 只靠符号名解析。详见 Common/GameCoreResolve.h 顶部说明。
 constexpr uint8_t kSigEditGameEffects[8] = { 0x48, 0x8B, 0x81, 0x60, 0x02, 0x00, 0x00, 0xC3 };
 constexpr uint8_t kSigHandleGet[8]       = { 0x48, 0x8B, 0x01, 0xC3, 0xCC, 0xCC, 0xCC, 0xCC };
 
@@ -633,8 +631,7 @@ void ModifierManagerAPI_Init(HookAPI* api) {
 	g_clearModifier = gc::ResolveVerified<ClearModifierFn>(api, kHookImageGameCoreXP2,
 		kTargetClearModifier, kSigClear, sizeof(kSigClear),
 		"ModifierManager/ClearModifier");
-	g_gameEdit = gc::ResolveVerifiedAob<GameEditFn>(api, kHookImageGameCoreXP2,
-		kTargetGameEdit, "ModifierManager/Game::Edit", kSigGameEdit);
+	g_gameEdit = gc::Resolve<GameEditFn>(api, kHookImageGameCoreXP2, kTargetGameEdit, 16);
 	g_editGameEffects = gc::ResolveVerified<EditGameEffectsFn>(api, kHookImageGameCoreXP2,
 		kTargetEditGameEffects, kSigEditGameEffects, sizeof(kSigEditGameEffects),
 		"ModifierManager/EditGameEffects");
