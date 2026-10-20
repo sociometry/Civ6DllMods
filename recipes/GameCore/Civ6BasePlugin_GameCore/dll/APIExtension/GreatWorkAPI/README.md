@@ -173,12 +173,15 @@ Culture +0x118 = greatWorks vector.begin
 | 目标 | 方式 | AOB |
 | --- | --- | --- |
 | `Game::Culture::Edit` | `HookName` | **不带**（47 处同形） |
-| `Culture::FindOrAddGreatWork` | `HookName` + AOB | 21 字节，唯一 |
-| `Culture::SetGreatWorkPlayer` | `HookName` + AOB | 18 字节，唯一 |
-| `Buildings::CanAddGreatWork` | `HookName` + AOB | 28 字节，唯一 |
-| `Buildings::AddGreatWork` | `HookName` + AOB | 26 字节，唯一 |
+| `Culture::FindOrAddGreatWork` | `HookName` + AOB | 22 字节，唯一 |
+| `Culture::SetGreatWorkPlayer` | `HookName` + AOB | 19 字节，唯一 |
+| `Buildings::CanAddGreatWork` | `HookName` + AOB | 38 字节，唯一 |
+| `Buildings::AddGreatWork` | `HookName` + AOB | 31 字节，唯一 |
 | `Buildings::AddGreatWorkToSlot` | `HookName` + AOB | 22 字节，唯一（仅保留解析与就绪判定，不用于放置） |
-| `Player::Districts_Units_Cities::Find` | `HookName` + AOB | 20 字节，唯一 |
+| `Player::Districts_Units_Cities::Find` | `HookName` + AOB | 22 字节，唯一 |
+
+> AOB 字节数以 `GreatWorkAPI.cpp` 里 `HookName(sym, "...")` 的实际串为准；
+> 改代码时同步本表，不要凭记忆填。
 
 ## 注册环境
 

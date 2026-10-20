@@ -44,8 +44,8 @@ AI 每回合要为每座城市的每栋建筑挑选「往哪个槽放哪件巨�
 | 目标 | 方式 | AOB |
 | --- | --- | --- |
 | `CultureAi_GreatWorks::Execute` | `HookName` + AOB | 24 字节，唯一 |
-| `bounded_knapsack` | `HookName` + AOB | 21 字节，唯一 |
-| `Definitions::GetBuildingDefinitions` | `HookName` + AOB | 18 字节（含 `??`），唯一 |
+| `bounded_knapsack` | `HookName` + AOB | 23 字节，唯一 |
+| `Definitions::GetBuildingDefinitions` | `HookName` + AOB | 20 字节（含 `??`），唯一 |
 | `Player::Instance::IsHuman` | `HookName` 直调用 | **不带**（7 处同形） |
 
 ## 槽位布局（反编译复核）

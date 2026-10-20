@@ -40,8 +40,9 @@ ModConfig.Version                              -- "1.0"
 
 支持的值类型：`nil` / `boolean` / `number` / `string` / **数组 table**。
 
-> **哈希 table（`{a=1}`）不支持**：HookAPI 没暴露遍历原语，C++ 侧读不了哈希部分，
-> 这种表写出去是 `{}`。要存多个键请用 `ModConfig.Set(name, "key", value)` 逐个写。
+> **表的两种形态都支持**：`LuaObjLen > 0` 按数组读（`LuaRawGetI`），否则按对象用 `LuaNext` 遍历哈希
+> 部分 —— `{a=1}` 会正常存成 `{"a":1}`。要存不同结构的键值，既可以用嵌套 table，也可以用
+> `ModConfig.Set(name, "a/b/c", value)` 逐项写。
 
 ## 为什么是 JSON，为什么自己写解析器
 
@@ -93,6 +94,13 @@ api->RegisterGlobalScript(&RegisterMainLuaGlobals);
 table → JSON 用 `LuaObjLen` + `LuaRawGetI` 读数组、`LuaNext` 遍历哈希、
 `LuaType` / `LuaToNumber` / `LuaToBoolean` / `LuaCheckLString` 读标量；
 JSON → table 由 C++ 逐节点压栈构造。
+
+**真实限制**（`ModConfigCore.h` 的 `ReadLuaTable` / `ReadLuaValue`）：
+
+- 嵌套深度上限 **16**：超限的那**一项**返回失败，键值对被跳过，不导致整个表写失败；
+- JSON 的对象键必须是 string：字符串键原样用；**整数值**的数字键转成十进制字符串当键名
+  （`|d| < 1e15` 且 `d == floor(d)` 才行）；非整数数字键、boolean 键、table 键一律跳过；
+- 空表按对象处理（写成 `{}`），不会变成 `[]`。
 
 ### 写盘原子性
 

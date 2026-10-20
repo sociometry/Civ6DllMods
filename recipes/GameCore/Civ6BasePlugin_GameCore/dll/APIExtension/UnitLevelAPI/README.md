@@ -73,8 +73,10 @@ UI / Lua 读的是 Cache 层的缓存副本，靠 `0xA038D885` 事件驱动重�
 
 | 目标 | RVA | AOB |
 | --- | --- | --- |
-| `Experience::SetLevel` | `0x3974A0` | 15 字节，唯一 |
-| `Lua::ScopedInstance<IUnitExperience>::GetInstance` | `0x6FFED0` | 8 字节（前缀），唯一 |
+| `Experience::SetLevel` | `0x3974A0` | 16 字节，唯一 |
+| `Lua::ScopedInstance<IUnitExperience>::GetInstance` | `0x6FFED0` | **不带**（只靠符号名解析） |
+
+> `GetInstance` 是模板实例，`UnitLevelAPI.cpp` 里只写了 `HookName(...)` 一个参数，没有 AOB 兜底。
 
 ## 日志
 

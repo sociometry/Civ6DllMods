@@ -126,7 +126,7 @@ Civ6BasePlugin_GameCore: OnLoad
 [GreatWorkPreserve] active: extra great work slot changes keep existing great works
 [GreatWorkModifierAttach] active: great works from Great Person now fire GreatWorkAdded
 [InitUnitReturn] active: InitUnitValidAdjacentHex now returns the unit instance
-[UnitDamageCap] patched SetDamage clamp bound -> Unit::GetMaxDamage()
+[UnitDamageCap] hooked SetDamage+0x27; Range upper bound now Unit::GetMaxDamage() (detour=NNN bytes, orig=0x...)
 [GreatWorkAPI] symbols ok; GreatWorkManager.AddGreatWork/AddGreatWorkToCity registered
 [ModifierManager] unit-method inject: reg=1 pushed=1 (unit:AttachModifierByID(id))
 [UnitLevelAPI] experience-method inject: reg=1 pushed=1 (unit:GetExperience():SetLevel(n))

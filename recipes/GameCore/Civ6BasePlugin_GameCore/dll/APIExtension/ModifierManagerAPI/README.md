@@ -19,13 +19,13 @@
 unit:AttachModifierByID(modifierID)                 --> number   -- 返回索引，失败 -1
 
 -- 摘除（owner 可为 unit / city / player / district）
-ModifierManager.DetachModifierByID(owner, id[, n])  --> boolean  -- n 缺省 = 摘一层
+ModifierManager.DetachModifierByID(owner, id[, n])  --> number   -- 返回实际摘掉的层数（0 = 没找到）；n 缺省 = 摘一层
 
 -- 计数
 ModifierManager.GetCount(owner, id)                 --> number
 ```
 
-`n` 超过实际层数时全摘。重复摘除返回 `0` 而不是报错。
+`n` 超过实际层数时全摘。重复摘除返回 `0` 而不是报错（注意返回值是**层数**不是布尔）。
 
 ```lua
 local idx = unit:AttachModifierByID("COMMANDO_BONUS_MOVEMENT")
@@ -70,10 +70,13 @@ GetModifiersOwnedBy(system, outVec, sp)  -> 自有索引列表
 
 | owner | MakeObject | GetInstance |
 | --- | --- | --- |
-| Unit | 独立重载 | `ScopedInstance<IUnit,...>` |
-| City | 独立重载 | `ScopedInstance<ICity,...>` |
-| Player | 独立重载 | `ScopedInstance<IPlayer,...>` |
-| District | 独立重载 | `ScopedInstance<IDistrict,...>` |
+| Unit | 独立重载 | `ScopedInstance<IUnit,...>::GetInstance` |
+| City | 独立重载 | `ScopedVirtualInstance<ICity,...>::GetInstance` |
+| Player | 独立重载 | `IPlayer::GetPlayerInstance`（**不是**模板实例） |
+| District | 独立重载 | `ScopedInstance<IDistrict,...>::GetInstance` |
+
+> Player 不能用 `ScopedVirtualInstance<IPlayer,PlayerReference>`：它只返回 `PlayerReference`（ID 引用），
+> 拿不到 `Player::Instance*`，与 `MakeObject(Player)` 的入参对不上。
 
 符号库对重载只给 `_1` / `_2` / `_10` 这种纯序号（`MakeObject_10` 完全看不出是收
 `Unit` 的那个），所以**有重载的目标一律保持 mangled**，反而更可读也更稳定。
@@ -83,14 +86,21 @@ GetModifiersOwnedBy(system, outVec, sp)  -> 自有索引列表
 | 目标 | 方式 | AOB |
 | --- | --- | --- |
 | `ModifierSystem::AttachModifier` | `HookName` + AOB | 18 字节，唯一 |
-| `ModifierSystem::ClearModifier` | `HookName` + AOB | 16 字节，唯一 |
-| `GetModifiersOwnedBy` | `HookName` + AOB | 8 字节，唯一 |
-| `GetModifierOwnedByCount` | `HookName` + AOB | 8 字节，唯一 |
-| `Game::Instance::Edit` | `HookName` + AOB | 16 字节，唯一 |
-| `EditGameEffects` / `Handle::get` | `HookName` + AOB | 16 / 16 字节，唯一 |
-| `ScopedInstance<*>::GetInstance`（4 个） | `HookName` | **不带**（50 处同形） |
-| `GameEffects::MakeObject`（4 个重载） | **mangled** `HookName` | **不带**（3 处同形 + 14 个重载） |
-| `std::string::assign` | `HookName` | **不带**（5 处同形） |
+| `ModifierSystem::ClearModifier` | `HookName` + AOB | 19 字节，唯一 |
+| `GetModifiersOwnedBy` | `HookName` + AOB | 17 字节，唯一 |
+| `GetModifierOwnedByCount` | `HookName` + AOB | 16 字节，唯一 |
+| `Game::Instance::Edit` | `HookName` + AOB | 19 字节，唯一 |
+| `Game::Instance::EditGameEffects` | `HookName` + AOB | 16 字节，唯一 |
+| `Handle::get` | `HookName` + AOB | 23 字节，唯一 |
+| `ScopedInstance<*>::GetInstance`（Unit/District） | `HookName` | **不带**（模板实例前缀不唯一） |
+| `ScopedVirtualInstance<ICity>::GetInstance` | `HookName` | **不带**（同上） |
+| `IPlayer::GetPlayerInstance` | `HookName` | **不带**（前缀不唯一，且不是模板实例） |
+| `GameEffects::MakeObject`（4 个重载） | **mangled** `HookName` | Unit/City/Player **不带**（三者头部逐字节相同、命中 3 处）；**District 带 16 字节 AOB**（唯一命中） |
+| `std::string::assign` | `HookName` | **不带**（前缀不唯一） |
+
+> 命中数以 `ModifierManagerAPI.cpp` 顶部注释记录的实测值为准（ScopedInstance 系 **731** 处、
+> `IPlayer::GetPlayerInstance` **109** 处、`std::string::assign` **82** 处、`MakeObject(Unit/City/Player)` **3** 处）。
+> AOB 字节数以同文件 `HookName(sym, "...")` 的实际串为准；改代码时同步本表，不要凭记忆填。
 
 ## 挂载方式
 

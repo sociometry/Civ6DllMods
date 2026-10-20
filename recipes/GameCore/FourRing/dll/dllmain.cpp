@@ -16,14 +16,16 @@ static __int64 __fastcall Hook_ComputePlotsFromRadius(int /*radius*/) {
     return kPlotsForRing4;
 }
 
-extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
+// 必须返回 int：Loader 用 `onLoad(ctx) != 0` 判成功（PluginRegistry.cpp 的 CallOnLoadSafe）。
+// 写成 void 会让那个判断读到上一条调用的遗留 eax，插件会被随机判为初始化失败并隔离。
+extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
     if (!HookContext_IsCompatible(ctx)) {
-        return;
+        return 0;
     }
     // 按名字解析出本模块私有的接口表；查不到的入口为 nullptr。
     HookAPI* api = HookAPI_Resolve(ctx);
     if (!HookAPI_RequireAll(api, &HookAPI::ResolveByName, &HookAPI::InstallHook, &HookAPI::Log)) {
-        return;
+        return 0;
     }
     g_api = api;
 
@@ -32,17 +34,18 @@ extern "C" __declspec(dllexport) void OnLoad(HookContext* ctx) {
         "GameCore::City::CityHexspace::ComputePlotsFromRadius");
     if (!target) {
         api->Log("FourRing: ComputePlotsFromRadius not found");
-        return;
+        return 0;
     }
 
     if (!api->InstallHook(target, reinterpret_cast<void*>(&Hook_ComputePlotsFromRadius),
             reinterpret_cast<void**>(&g_orig))) {
         api->Log("FourRing: InstallHook failed");
-        return;
+        return 0;
     }
 
     api->Log("FourRing: hooked ComputePlotsFromRadius -> always %d (RVA target=%p)",
         kPlotsForRing4, target);
+    return 1;
 }
 
 extern "C" __declspec(dllexport) void OnUnload() {}

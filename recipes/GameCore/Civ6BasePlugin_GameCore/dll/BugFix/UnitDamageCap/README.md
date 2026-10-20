@@ -105,5 +105,7 @@ asmjit 对非法操作数只写进 emitter 的局部 `err`，`rt.add()` 仍返�
 ## 日志
 
 ```
-[UnitDamageCap] patched SetDamage clamp bound -> Unit::GetMaxDamage()
+[UnitDamageCap] hooked SetDamage+0x27; Range upper bound now Unit::GetMaxDamage() (detour=NNN bytes, orig=0x...)
 ```
+
+> `NNN` / `0x...` 是格式串 `%u` / `%p` 的运行时值，真实输出里不会出现这两个占位符。

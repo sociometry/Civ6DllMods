@@ -763,6 +763,26 @@ api->RegisterGlobalScript(&InitGlobals);
 > 一个容易踩的点：**不要自己缓存第一次拿到的 `L` 然后反复往它上面写**。每个环境是独立的，
 > 往旧的 `L` 写只影响那一个环境，新环境里照样看不见。正确的做法就是每次回调都往当次的 `L` 挂。
 
+> ⚠ **第二个坑：回调里不要 raise Lua 错误。**
+> `LuaError` / `LuaCheck*` 这类入口出错时走的是 longjmp，**不是普通返回**。
+> Loader 在这些回调外面用 `__try/__except` 兜底，但 `__try` 接不住 longjmp ——
+> 一旦 raise，Loader 帧里的 C++ 析构全部被跳过，在途计数永久不减，
+> 之后换局或卸载时的 `WaitForDetourDrain` / `WaitAll` 会**永久阻塞**（表现为卡死）。
+>
+> 正确写法：**用 `LuaType` 判断类型，不合法就正常 `return`**，而不是让 Lua 抛错。
+>
+> ```cpp
+> static int __fastcall lSetLevel(void* L) {
+>     // 不要写 LuaCheckInteger(L, 1) —— 参数不对它会 raise
+>     if (api->LuaType(L, 1) != 3) return 0;   // 3 = LUA_TNUMBER，静默忽略
+>     const int n = static_cast<int>(api->LuaToNumber(L, 1));
+>     // ...
+>     return 0;
+> }
+> ```
+>
+> `GreatWorkAPI.cpp` 就是这么改的（见该文件头注释第 4 条）。
+
 ### 6.7 游戏自定义事件总线（GameEvent）
 
 支持在 C++ 端向 Lua 触发带任意参数的自定义 GameEvent（参数打包通过 `GameEventPushFn` 回调完成，Loader 负责加解引擎锁与异常防护）：
@@ -812,6 +832,10 @@ end)
 ### 6.9 用 asmjit 生成 detour（进阶）
 
 有些 hook 不能用普通 C++ 函数当 detour：需要在进入原函数前改写寄存器、按条件跳回原函数中间、或者把一段极短的逻辑塞进目标函数的指令流里。这时可以用 asmjit 在运行期汇编出这段机器码。
+
+> **本章代码按 asmjit 1.17 写**（即本仓库 vendored 的版本，`ASMJIT_LIBRARY_VERSION` = 1.17.0）。
+> 1.20+ 改了若干 API 名字（`kErrorOk`→`Error::kOk`、`codeSize()`→`code_size()`、
+> `errorAsString()`→`error_as_string()`），直接照抄会编译不过 —— 对照表见 §6.9.9。
 
 **这不是必需手段。** 只要普通 C++ detour 能满足需求，就用普通 detour——少一层机器码就少一类崩溃。
 
@@ -896,13 +920,18 @@ asmjit 的每个 emit 调用都会返回 `Error`，出错时那一条指令**不
 #define ASMJIT_EMIT(expr)                                                        \
     do {                                                                         \
         asmjit::Error _e = (expr);                                               \
-        if (_e != asmjit::Error::kOk) {                                          \
+        if (_e != asmjit::kErrorOk) {                                            \
             api->Log("[Hook] asmjit emit failed @%d (%s): %s",                   \
-                __LINE__, #expr, asmjit::DebugUtils::error_as_string(_e));       \
+                __LINE__, #expr, asmjit::DebugUtils::errorAsString(_e));         \
             return false;                                                        \
         }                                                                        \
     } while (0)
 ```
+
+> 名字必须是 `asmjit::kErrorOk` 与 `asmjit::DebugUtils::errorAsString`。本仓库 vendored 的是
+> asmjit **1.17**，其中 `using Error = uint32_t;`（**不是** class），错误码在 `enum ErrorCode` 里 ——
+> 写 `asmjit::Error::kOk` / `error_as_string` 在 1.17 下编译不过（那是 1.20+ 的写法）。
+> 仓库里可直接抄的定义见 `UnlockModelLimit_Common.h` 的 `ASMJIT_EMIT`。
 
 > 注意这个宏只能用在返回 `bool` 的函数里（失败路径是 `return false`）。返回 `void` 的函数要单独展开写。
 
@@ -911,7 +940,9 @@ asmjit 的每个 emit 调用都会返回 `Error`，出错时那一条指令**不
 #### 6.9.4 完整骨架
 
 ```cpp
-#include "asmjit/x86.h"      // 1.20+；1.17 也用这个（它内部已包含 core.h）
+// 本仓库 vendored 的是 asmjit 1.17：用 asmjit/x86.h（它内部已包含 core.h）。
+// 下面代码按 1.17 的 API 写；1.20+ 的差异见 §6.9.9 的对照表。
+#include "asmjit/x86.h"
 
 // 进程内共用一个 JitRuntime 即可；它只负责"给 CodeHolder 分配一块临时可执行页"。
 static asmjit::JitRuntime g_rt;
@@ -921,12 +952,12 @@ inline bool InstallAsmDetour(HookAPI* api, void* target, void** original,
                              asmjit::CodeHolder& code) {
     void* fn = nullptr;
     asmjit::Error err = g_rt.add(&fn, &code);
-    if (err != asmjit::Error::kOk || !fn) {
-        api->Log("asmjit jit failed: %s", asmjit::DebugUtils::error_as_string(err));
+    if (err != asmjit::kErrorOk || !fn) {
+        api->Log("asmjit jit failed: %s", asmjit::DebugUtils::errorAsString(err));
         return false;
     }
 
-    const size_t size = code.code_size();          // 1.17 是 code.codeSize()
+    const size_t size = code.codeSize();           // 1.20+ 是 code.code_size()
     bool ok = false;
     if (size > 0 && size <= sizeof(g_detourCode)) {
         DWORD old = 0;
@@ -1130,6 +1161,10 @@ MyAwesomeMod/
 
 Loader **不读** `<FrontEndActions><ImportFiles>`。把 `FrontEndUI_*.xml` 放进 Mod 目录即可，写在 `.modinfo` 里的 `ImportFiles` 对 Loader 没有任何影响。
 
+> 本仓库 `docs/template/YourDllMod.modinfo` 里**确实写了**一段 `<ImportFiles id="FrontEndUI">`。
+> 那段是给**不用 Loader、走游戏原生 ForgeUI 加载**的场合留的；用 Loader 时它既不生效也不碍事。
+> 换句话说：**加不加都行，Loader 一律按文件名扫描。**
+
 这样做的副作用只有一个：**同一个 Mod 目录里凡是叫 `FrontEndUI_*.xml` 的文件都会被加载**。不要拿这个前缀给别的 xml 起名。
 
 ### 7.3 不支持条件加载
@@ -1218,10 +1253,12 @@ Duplicate plugin basename: kept <胜出路径> (v1.2.0.0), dropped <你的路径
 **A：不会。** Loader 不对补丁做自动回滚，写入的字节在进程退出前持续有效。因此补丁应按"生效后不还原"来设计。`Unpatch` 可用于运行期动态撤销，但不要把它当作卸载清理的常规步骤（详见 §6.3）。
 
 ### Q：只想给主菜单加个面板，也必须写 C++ 插件吗？
-**A：不必。** 主菜单 UI 走 Mod 包声明：放一对 `FrontEndUI_*.xml` + `.lua`，在 `.modinfo` 的 `<FrontEndActions>/<ImportFiles>` 里登记即可，不需要 DLL。详见 §7。
+**A：不必。** 放一对 `FrontEndUI_*.xml` + `.lua` 进 Mod 目录即可，**不需要**编译 DLL，也**不需要**在 `.modinfo` 里写 `<ImportFiles>`——Loader 按文件名扫描（见 §7.2）。详见 §7。
 
 ### Q：主菜单 UI 没出现，怎么排查？
-**A：** 依次核对——① 文件名是否以 `FrontEndUI_` 开头、以 `.xml` 结尾，且与 `.lua` 同名同目录；② `.modinfo` 里 `ImportFiles` 是否直接挂在 `FrontEndActions` 下；③ Mod 是否已启用；④ `Civ6DllLoader_Loader.log` 里是否出现 `UiInject: 发现 N 个 Mod UI` 与 `UiInject: context 已加载 (你的文件名)`。详见 §7.5。
+**A：** 依次核对——① 文件名是否以 `FrontEndUI_` 开头、以 `.xml` 结尾，且与 `.lua` 同名同目录；② 文件是否放在**已启用** Mod 的目录树里（递归上限 8 层）；③ `Civ6DllLoader_Loader.log` 里是否出现 `UiInject: 发现 N 个 Mod UI` 与 `UiInject: context 已加载 (你的文件名)`。
+
+注意：`.modinfo` 里写不写 `<ImportFiles>` 对 Loader **没有影响**（§7.2）——不要照官方 UI 教程去登记，白花时间。详见 §7.5。
 
 ---
 
@@ -1349,6 +1386,11 @@ while (api->LuaNext(L, t)) {               // 返回 1：栈上多了 key(-2) / 
   从一个错的位置开始，遍历会跳项甚至死循环；
 - **遍历中不要改表**。Lua 5.1 对"遍历时新增/删除键"的行为未定义；要改就先收集到自己的容器里，
   遍历结束后再写回。
+
+按用途分组：
+
+| 用途 | 入口 |
+|---|---|
 | 调用 | `LuaPcall` `LuaCPcall` `LuaDoString` |
 | 调试 | `LuaOpenDebug` `LuaSetHook` `LuaGetHook` `LuaGetHookMask` `LuaGetHookCount` |
 | 错误 | `LuaError`（抛出 Lua 错误，**不返回**） |
@@ -1547,7 +1589,16 @@ extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
         return 0;
     }
     HookAPI* api = HookAPI_Resolve(ctx);
-    if (!HookAPI_RequireAll(api, &HookAPI::Log, &HookAPI::RegisterGameCoreScriptForGamePlay)) {
+    // 必须把【真正用到的】每一个入口都列进来 —— 包括回调里间接调用的那些。
+    // 下面这段 OnInitGlobals / lVersion 用到 Lua 表与字符串压栈，
+    // 漏列即空指针调用（本文件 §3 的要点里说过这条，这里是最容易犯的地方）。
+    if (!HookAPI_RequireAll(api,
+            &HookAPI::Log,
+            &HookAPI::RegisterGameCoreScriptForGamePlay,
+            &HookAPI::LuaNewGlobalTable,
+            &HookAPI::LuaPushCFunctionField,
+            &HookAPI::LuaPushFString,
+            &HookAPI::LuaPop)) {
         return 0;
     }
     g_api = api;

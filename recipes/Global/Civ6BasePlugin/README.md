@@ -87,10 +87,13 @@ runtime 日志（`%LOCALAPPDATA%\Firaxis Games\Sid Meier's Civilization VI\Logs\
 
 ```
 UnlockModelLimit: exe image = DX12
-[DX12] redirects: 58 ok, 0 failed
-[DX12] installed (60 patches)
+[DX12] hooks installed: %d/2
+UnlockModelLimit[DX12]: installed (%zu patches)
 [ModConfig] registered; dir=...\ModConfigs
 ```
+
+> `%d` / `%zu` 是格式串里的运行时数值，不是固定数字；站点集合随 exe 版本变化。
+> DX11 分支的对应行是 `UnlockModelLimit: installed (%zu patches, %d/4 hooks)`。
 
 任何一条缺失、或出现 `redirects incomplete`，说明该 exe 版本的站点形态变了，补丁会整体跳过
 （功能不生效，但不改内存）。
@@ -101,8 +104,16 @@ UnlockModelLimit: exe image = DX12
 
 ## 依赖
 
-第三方库已 vendored 在 `dll/include` 与 `dll/lib`：asmjit 93、Zydis 28、Zycore 22。
+第三方库已 vendored 在 `dll/include` 与 `dll/lib`：
+
+| 库 | 版本 | 判据 |
+| --- | --- | --- |
+| asmjit | **1.17** | `include/asmjit/core/api-config.h` 的 `ASMJIT_ABI_NAMESPACE v1_17`；`lib/asmjit.lib` 导出符号带 `@v1_17@` |
+| Zydis | **4.1.0** | `include/Zydis/Zydis.h` 的 `ZYDIS_VERSION 0x0004000100000000` |
+| Zycore | **1.5.2** | `include/Zycore/Zycore.h` 的 `ZYCORE_VERSION 0x0001000500020000` |
+
 （ModConfig 不依赖它们，纯 Win32 + 自带 MiniJson。）
+升级这几个库时三处版本表要一起改，并重新核对 `ASMJIT_STATIC` / `ZYDIS_STATIC_BUILD` 两个宏。
 
 ---
 
