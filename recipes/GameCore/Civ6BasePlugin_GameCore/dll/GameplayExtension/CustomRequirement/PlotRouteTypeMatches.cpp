@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "NewRequirements.h"
+#include "CustomRequirement.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -886,11 +886,11 @@ bool PushRouteFactory(HookAPI* api) {
 
 }  // namespace
 
-bool NewRequirements_RegisterPlotRoute(HookAPI* api) {
+void CustomRequirement_InitPlotRoute(HookAPI* api) {
     // api 是调用方 HookAPI_Resolve 出来的本模块私有表，非空即已解析。
     // 兼容性与依赖项检查由 OnLoad 的 HookContext_IsCompatible + HookAPI_RequireAll 负责。
     if (!api) {
-        return false;
+        return;
     }
     g_api = api;
     g_getTypes = reinterpret_cast<GetTypesFn>(ResolveSpec(api, kSymGetTypes));
@@ -905,7 +905,7 @@ bool NewRequirements_RegisterPlotRoute(HookAPI* api) {
 
     if (!LoadGuidFromImage(api, kSymIPlotInterfaceGuid, g_iPlotInterfaceGuid)) {
         api->Log("PlotRouteTypeMatches: failed to load subject interface GUID");
-        return false;
+        return;
     }
     if (g_makeHash) {
         g_routeRequirementTypeHash = g_makeHash("REQUIREMENT_PLOT_ROUTE_TYPE_MATCHES");
@@ -915,11 +915,11 @@ bool NewRequirements_RegisterPlotRoute(HookAPI* api) {
         || !g_setRouteTypeOnPlot || !g_routeGetDefinitions || !g_makeHash
         || !g_opNew || !g_setState || !g_argProcessorVftable || !g_routeRequirementTypeHash) {
         api->Log("PlotRouteTypeMatches: missing critical symbols");
-        return false;
+        return;
     }
     if (!BuildRouteFactoryVtable(api)) {
         api->Log("PlotRouteTypeMatches: failed to build factory vtable");
-        return false;
+        return;
     }
 
     if (!api->InstallHook(
@@ -927,7 +927,7 @@ bool NewRequirements_RegisterPlotRoute(HookAPI* api) {
             reinterpret_cast<void*>(&Detour_RouteTestPlot),
             reinterpret_cast<void**>(&g_origRouteTestPlot))) {
         api->Log("PlotRouteTypeMatches: failed to install Detour_RouteTestPlot");
-        return false;
+        return;
     }
     api->Log("PlotRouteTypeMatches: Detour_RouteTestPlot installed at %p", g_routeTestPlot);
     if (!api->InstallHook(
@@ -935,7 +935,7 @@ bool NewRequirements_RegisterPlotRoute(HookAPI* api) {
             reinterpret_cast<void*>(&Detour_PlotRequirementTest),
             reinterpret_cast<void**>(&g_origPlotRequirementTest))) {
         api->Log("PlotRouteTypeMatches: failed to install Detour_PlotRequirementTest");
-        return false;
+        return;
     }
     api->Log("PlotRouteTypeMatches: Detour_PlotRequirementTest installed at %p", g_plotRequirementTest);
     if (!api->InstallHook(
@@ -943,14 +943,17 @@ bool NewRequirements_RegisterPlotRoute(HookAPI* api) {
             reinterpret_cast<void*>(&Hook_SetRouteTypeOnPlot),
             reinterpret_cast<void**>(&g_origSetRouteTypeOnPlot))) {
         api->Log("PlotRouteTypeMatches: failed to install Hook_SetRouteTypeOnPlot");
-        return false;
+        return;
     }
     api->Log("PlotRouteTypeMatches: Hook_SetRouteTypeOnPlot installed at %p", g_setRouteTypeOnPlot);
     const bool registered = PushRouteFactory(api);
     api->Log("PlotRouteTypeMatches: registration %s", registered ? "OK" : "FAILED");
-    return registered;
+    (void)registered;
 }
 
-void NewRequirements_UnloadPlotRoute() {
+void CustomRequirement_ShutdownPlotRoute() {
     ClearWeakRequirements();
+    // 断引用：钩子由 Loader 按 owner 回收，这里只保证不会有人再经本模块的
+    // g_api 调到已卸载的 Loader 入口。
+    g_api = nullptr;
 }

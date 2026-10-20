@@ -1,13 +1,16 @@
-# NewRequirements
+# CustomRequirement
 
-为文明6风云变幻增加两个 Requirement：
+为文明6风云变幻增加两个自定义 **Requirement**（`GameplayExtension` 分类下的示例模块）：
 
 | 源码 | 负责内容 | 注册后安装的 hook |
 |---|---|---|
-| [PlayerPropertyMatches.cpp](dll/PlayerPropertyMatches.cpp) | 玩家属性阈值；地址、参数解析、工厂、判断、弱引用和刷新 | PlotProperty OnInitialize / Test、玩家属性 Dispatch、Lua SetProperty（4 个） |
-| [PlotRouteTypeMatches.cpp](dll/PlotRouteTypeMatches.cpp) | 道路类型；地址、参数解析、工厂、判断、弱引用和刷新 | Terrain TestPlot、PlotRequirement Test、SetRouteType（3 个） |
-| [dllmain.cpp](dll/dllmain.cpp) | 检查 API，分别调用注册函数 | 不包含 REQ 实现 |
-| [NewRequirements.h](dll/NewRequirements.h) | 两个注册函数的声明 | 无 |
+| [PlayerPropertyMatches.cpp](PlayerPropertyMatches.cpp) | 玩家属性阈值；地址、参数解析、工厂、判断、弱引用和刷新 | PlotProperty OnInitialize / Test、玩家属性 Dispatch、Lua SetProperty（4 个） |
+| [PlotRouteTypeMatches.cpp](PlotRouteTypeMatches.cpp) | 道路类型；地址、参数解析、工厂、判断、弱引用和刷新 | Terrain TestPlot、PlotRequirement Test、SetRouteType（3 个） |
+| [CustomRequirement.h](CustomRequirement.h) | 两个 `*_Init` / `*_Shutdown` 的声明 | 无 |
+
+调用点在插件入口 [dllmain.cpp](../../dllmain.cpp)：`OnLoad` 依次调 `CustomRequirement_InitPlayerProperty` /
+`CustomRequirement_InitPlotRoute`，`OnUnload` 调对应的两个 `*_Shutdown`。任一模块失败不影响另一个
+（各自装钩、各自记日志）。
 
 每个 cpp 都有自己的匿名命名空间和状态。地址解析、shared pointer、Registry 等辅助代码有意重复，方便单独阅读和复制；两个模块不互相调用，也不再依赖一个集中实现文件。
 
@@ -18,17 +21,20 @@
 | `REQUIREMENT_PLAYER_PROPERTY_MATCHES` | `PropertyName`、`PropertyMinimum`（有符号 32 位阈值） |
 | `REQUIREMENT_PLOT_ROUTE_TYPE_MATCHES` | `RouteType`（例如 `ROUTE_ANCIENT_ROAD`） |
 
-[Requirements.sql](Civ6Mod/Data/Requirements.sql) 当前将属性 Modifier 挂在 `TRAIT_LEADER_MAJOR_CIV`，阈值为 1 和 2，各加 1 次工人次数。道路 Modifier 挂在农田上，远古道路匹配时加 10 金币；虽然其 ID 仍叫 `MODIFIER_EXAMPLE_ROAD_FOOD`，实际参数是 `YIELD_GOLD`。农田还挂有一个增加 `MY_TEST_PROP` 的原生 effect。这些 SQL 本次未修改。
+配套 SQL 在 [Civ6Mod/Data/Gameplay.sql](../../../Civ6Mod/Data/Gameplay.sql)（本工程只维护一份，Requirement 与 Effect 的示范数据都在里面）。
+属性 Modifier 挂在 `TRAIT_LEADER_MAJOR_CIV`，阈值为 1 和 2，各加 1 次工人次数；道路 Modifier 挂在农田上，
+远古道路匹配时加 10 金币（旧 ID 叫 `MODIFIER_EXAMPLE_ROAD_FOOD` 但实际参数是 `YIELD_GOLD`，已改名为
+`MODIFIER_EXAMPLE_ROAD_GOLD`）。
 
 ## 构建与验证
 
 在仓库根目录执行：
 
 ```powershell
-& MSBuild.exe recipes\GameCore\NewRequirements\dll\NewRequirements.vcxproj /t:Rebuild /m /p:Configuration=Release /p:Platform=x64
+& MSBuild.exe recipes\GameCore\Civ6BasePlugin_GameCore\dll\Civ6BasePlugin_GameCore.vcxproj /t:Rebuild /m /p:Configuration=Release /p:Platform=x64
 ```
 
-产物：`x64/Release/NewRequirements.dll`。
+产物：`x64\Release\Civ6BasePlugin_GameCore.dll`（本模块已并进这个插件，不再单独出 DLL）。
 
 ## 新增 Requirement 通用指南
 

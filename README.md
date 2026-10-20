@@ -23,10 +23,8 @@
 
 | 工程 | 说明 |
 | --- | --- |
-| [Civ6BasePlugin_GameCore](recipes/GameCore/Civ6BasePlugin_GameCore/README.md) | 基础插件集。修 **7** 个原版缺陷（巨作分配卡顿 / 巨作类型与槽位无法新增 / 产出加成不叠加 / 改巨作槽数会吞掉已放置的巨作 / 巨作不触发挂载的 Modifier / `InitUnitValidAdjacentHex` 返回 nil / 单位血量超 100 打不死）+ 补 **3** 组 Lua 接口（巨作 / 修饰符 / 单位等级） |
+| [Civ6BasePlugin_GameCore](recipes/GameCore/Civ6BasePlugin_GameCore/README.md) | 基础插件集。**修 7 个原版缺陷**（巨作分配卡顿 / 巨作类型与槽位无法新增 / 产出加成不叠加 / 改巨作槽数会吞掉已放置的巨作 / 巨作不触发挂载的 Modifier / `InitUnitValidAdjacentHex` 返回 nil / 单位血量超 100 打不死）+ **补 3 组 Lua 接口**（巨作 / 修饰符 / 单位等级）+ **2 个自定义 Requirement**（玩家属性阈值 / 地块道路类型）+ **1 个自定义 Effect**（`EFFECT_ADJUST_PLOT_PROPERTY`） |
 | [FourRing](recipes/GameCore/FourRing/README.md) | 最小实战 hook：`ComputePlotsFromRadius` 固定返回 43（调用点再加 18 得 61），验证按名取符号 + `InstallHook` |
-| [NewRequirements](recipes/GameCore/NewRequirements/README.md) | 新增自定义 Requirement：玩家属性阈值、地块道路类型 |
-| [AdjustPlotPropertyEffect](recipes/GameCore/AdjustPlotPropertyEffect/README.md) | 注入 `EFFECT_ADJUST_PLOT_PROPERTY` 的脚手架示范 |
 
 > 目录里每个工程都带 `README.md`，讲清楚它改了什么、怎么定位目标、踩过哪些坑。上表的链接直达。
 

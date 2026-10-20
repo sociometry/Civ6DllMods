@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "AdjustPlotProperty.h"
+#include "AdjustPlotPropertyEffect.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -458,11 +458,11 @@ bool EnsureFactory(HookAPI* api) {
 
 }  // namespace
 
-bool AdjustPlotPropertyEffect_Register(HookAPI* api) {
+void AdjustPlotPropertyEffect_Init(HookAPI* api) {
     // api 是调用方 HookAPI_Resolve 出来的本模块私有表，非空即已解析。
     // 兼容性与依赖项检查由 OnLoad 的 HookContext_IsCompatible + HookAPI_RequireAll 负责。
     if (!api) {
-        return false;
+        return;
     }
     g_api = api;
 
@@ -491,15 +491,21 @@ bool AdjustPlotPropertyEffect_Register(HookAPI* api) {
 
     if (!g_opNew || !g_createUnitFactory || !g_unitFactoryVftable || !g_unitEffectVftable || !g_getTypes) {
         api->Log("AdjustPlotProperty: missing critical symbols");
-        return false;
+        return;
     }
     if (!BuildVtables(api)) {
         api->Log("AdjustPlotProperty: failed to build patched vtables");
-        return false;
+        return;
     }
     if (!PushFactory(api)) {
         api->Log("AdjustPlotProperty: failed to push factory into Registry::GetTypes()");
-        return false;
+        return;
     }
-    return true;
+    api->Log("%s", "AdjustPlotProperty: EFFECT_ADJUST_PLOT_PROPERTY registration OK");
+}
+
+void AdjustPlotPropertyEffect_Shutdown() {
+    // 断引用即可：工厂与虚表由引擎在 GameCore 拆卸时一并回收，Loader 按 owner 回收钩子；
+    // 本模块没有需要主动撤销的登记（与其它 GameCore 模块一致）。
+    g_api = nullptr;
 }

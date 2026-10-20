@@ -105,6 +105,8 @@
 		<ClInclude Include="APIExtension\GreatWorkAPI\GreatWorkAPI.h" />
 		<ClInclude Include="APIExtension\ModifierManagerAPI\ModifierManagerAPI.h" />
 		<ClInclude Include="APIExtension\UnitLevelAPI\UnitLevelAPI.h" />
+		<ClInclude Include="GameplayExtension\AdjustPlotPropertyEffect\AdjustPlotPropertyEffect.h" />
+		<ClInclude Include="GameplayExtension\CustomRequirement\CustomRequirement.h" />
 		<ClInclude Include="Common\GameCoreResolve.h" />
 		<ClInclude Include="HookAPI.h" />
 		<ClInclude Include="framework.h" />
@@ -121,6 +123,9 @@
 		<ClCompile Include="APIExtension\GreatWorkAPI\GreatWorkAPI.cpp" />
 		<ClCompile Include="APIExtension\ModifierManagerAPI\ModifierManagerAPI.cpp" />
 		<ClCompile Include="APIExtension\UnitLevelAPI\UnitLevelAPI.cpp" />
+		<ClCompile Include="GameplayExtension\AdjustPlotPropertyEffect\AdjustPlotProperty.cpp" />
+		<ClCompile Include="GameplayExtension\CustomRequirement\PlayerPropertyMatches.cpp" />
+		<ClCompile Include="GameplayExtension\CustomRequirement\PlotRouteTypeMatches.cpp" />
 		<ClCompile Include="dllmain.cpp" />
 		<ClCompile Include="pch.cpp">
 			<PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>

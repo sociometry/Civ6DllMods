@@ -35,6 +35,17 @@ Civilization VI 的 **GameCore 生命周期插件工程**，跑在 [Civ6DllLoade
 | [ModifierManagerAPI](dll/APIExtension/ModifierManagerAPI/README.md) | `unit:AttachModifierByID` / `ModifierManager.DetachModifierByID` / `GetCount` |
 | [UnitLevelAPI](dll/APIExtension/UnitLevelAPI/README.md) | `unit:GetExperience():SetLevel(n)` |
 
+### GameplayExtension —— 新增引擎本来没有的游戏对象
+
+| 模块 | 注册什么 |
+| --- | --- |
+| [CustomRequirement](dll/GameplayExtension/CustomRequirement/README.md) | 两个自定义 **Requirement**：`REQUIREMENT_PLAYER_PROPERTY_MATCHES`（玩家动态属性阈值）、`REQUIREMENT_PLOT_ROUTE_TYPE_MATCHES`（地块道路类型）。前者装 4 个钩，后者装 3 个 |
+| [AdjustPlotPropertyEffect](dll/GameplayExtension/AdjustPlotPropertyEffect/README.md) | 一个自定义 **Effect**：`EFFECT_ADJUST_PLOT_PROPERTY`（改地块动态属性）。不改钩子，靠克隆 `AdjustUnitProperty` 的工厂与效果虚表 |
+
+> 这两类做的是**同一件事的两面**：`Requirement` 决定「条件是否成立」，`Effect` 决定「成立后做什么」。
+> 两者都要往 `GameEffects` 的注册表里注入自定义对象，所以归在同一个 `GameplayExtension` 下。
+> 配套 SQL 示范在 `Civ6Mod/Data/Gameplay.sql`。
+
 ---
 
 ## 兼容性取址

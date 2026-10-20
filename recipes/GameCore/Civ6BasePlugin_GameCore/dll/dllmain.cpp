@@ -25,6 +25,8 @@
 #include "APIExtension/GreatWorkAPI/GreatWorkAPI.h"
 #include "APIExtension/ModifierManagerAPI/ModifierManagerAPI.h"
 #include "APIExtension/UnitLevelAPI/UnitLevelAPI.h"
+#include "GameplayExtension/CustomRequirement/CustomRequirement.h"
+#include "GameplayExtension/AdjustPlotPropertyEffect/AdjustPlotPropertyEffect.h"
 
 extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
 	// ABI 防御必须最先做（docs/PLUGIN_GUIDE.md §3.1）
@@ -38,6 +40,9 @@ extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
 			&HookAPI::Log,
 			&HookAPI::ResolveByName,
 			&HookAPI::ResolveByPattern,
+			&HookAPI::ResolveByRva,
+			&HookAPI::ResolveByRvaEx,
+			&HookAPI::MakeHash,
 			&HookAPI::InstallHook,
 			&HookAPI::GetPlayer,
 			&HookAPI::RegisterGameCoreScriptForGamePlay,
@@ -75,6 +80,12 @@ extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
 	ModifierManagerAPI_Init(api);
 	UnitLevelAPI_Init(api);
 
+	// ---- GameplayExtension ----
+	// 两个自定义 Requirement + 一个自定义 Effect。三者互不依赖，任一失败不影响其它。
+	CustomRequirement_InitPlayerProperty(api);
+	CustomRequirement_InitPlotRoute(api);
+	AdjustPlotPropertyEffect_Init(api);
+
 	api->Log("%s", "Civ6BasePlugin_GameCore: loaded");
 	return 1;
 }
@@ -91,6 +102,9 @@ extern "C" __declspec(dllexport) void OnUnload() {
 	GreatWorkAPI_Shutdown();
 	ModifierManagerAPI_Shutdown();
 	UnitLevelAPI_Shutdown();
+	CustomRequirement_ShutdownPlayerProperty();
+	CustomRequirement_ShutdownPlotRoute();
+	AdjustPlotPropertyEffect_Shutdown();
 }
 
 BOOL APIENTRY DllMain(HMODULE, DWORD, LPVOID) {

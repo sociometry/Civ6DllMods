@@ -1,5 +1,5 @@
 #include "pch.h"
-#include "NewRequirements.h"
+#include "CustomRequirement.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -1000,11 +1000,11 @@ bool PushFactory(HookAPI* api) {
 
 }  // namespace
 
-bool NewRequirements_RegisterPlayerProperty(HookAPI* api) {
+void CustomRequirement_InitPlayerProperty(HookAPI* api) {
     // api 是调用方 HookAPI_Resolve 出来的本模块私有表，非空即已解析。
     // 兼容性与依赖项检查由 OnLoad 的 HookContext_IsCompatible + HookAPI_RequireAll 负责。
     if (!api) {
-        return false;
+        return;
     }
     g_api = api;
     g_getTypes = reinterpret_cast<GetTypesFn>(ResolveSpec(api, kSymGetTypes));
@@ -1032,7 +1032,7 @@ bool NewRequirements_RegisterPlayerProperty(HookAPI* api) {
 
     if (!LoadGuidFromImage(api, kSymIPlayerInterfaceGuid, g_iPlayerInterfaceGuid)) {
         api->Log("PlayerPropertyMatches: failed to load subject interface GUID");
-        return false;
+        return;
     }
     if (g_makeHash) {
         g_requirementTypeHash = g_makeHash(kRequirementTypeName);
@@ -1051,11 +1051,11 @@ bool NewRequirements_RegisterPlayerProperty(HookAPI* api) {
         || !g_luaIsNumber || !g_luaIsString || !g_luaToInteger || !g_luaToString
         || !g_plotPropertyRequirementVftable || g_requirementTestSlot < 0) {
         api->Log("PlayerPropertyMatches: missing critical symbols");
-        return false;
+        return;
     }
     if (!BuildVtables(api)) {
         api->Log("PlayerPropertyMatches: failed to build factory vtable");
-        return false;
+        return;
     }
 
     if (!api->InstallHook(
@@ -1063,7 +1063,7 @@ bool NewRequirements_RegisterPlayerProperty(HookAPI* api) {
             reinterpret_cast<void*>(&Detour_PlotOnInitialize),
             reinterpret_cast<void**>(&g_origPlotOnInitialize))) {
         api->Log("PlayerPropertyMatches: failed to install Detour_PlotOnInitialize");
-        return false;
+        return;
     }
     api->Log("PlayerPropertyMatches: Detour_PlotOnInitialize installed at %p", g_onInitializePlot);
     if (!api->InstallHook(
@@ -1071,7 +1071,7 @@ bool NewRequirements_RegisterPlayerProperty(HookAPI* api) {
             reinterpret_cast<void*>(&Detour_PlotTest),
             reinterpret_cast<void**>(&g_origPlotTest))) {
         api->Log("PlayerPropertyMatches: failed to install Detour_PlotTest");
-        return false;
+        return;
     }
     api->Log("PlayerPropertyMatches: Detour_PlotTest installed at %p", g_testPlot);
     if (!api->InstallHook(
@@ -1079,7 +1079,7 @@ bool NewRequirements_RegisterPlayerProperty(HookAPI* api) {
             reinterpret_cast<void*>(&Hook_PlayerPropDispatch),
             reinterpret_cast<void**>(&g_origPlayerPropDispatch))) {
         api->Log("PlayerPropertyMatches: failed to install Hook_PlayerPropDispatch");
-        return false;
+        return;
     }
     api->Log("PlayerPropertyMatches: Hook_PlayerPropDispatch installed at %p", playerPropDispatch);
     if (!api->InstallHook(
@@ -1087,14 +1087,17 @@ bool NewRequirements_RegisterPlayerProperty(HookAPI* api) {
             reinterpret_cast<void*>(&Hook_LuaPlayerSetProperty),
             reinterpret_cast<void**>(&g_origLuaPlayerSetProperty))) {
         api->Log("PlayerPropertyMatches: failed to install Hook_LuaPlayerSetProperty");
-        return false;
+        return;
     }
     api->Log("PlayerPropertyMatches: Hook_LuaPlayerSetProperty installed at %p", luaPlayerSetProperty);
     const bool registered = PushFactory(api);
     api->Log("PlayerPropertyMatches: registration %s", registered ? "OK" : "FAILED");
-    return registered;
+    (void)registered;
 }
 
-void NewRequirements_UnloadPlayerProperty() {
+void CustomRequirement_ShutdownPlayerProperty() {
     ClearWeakRequirements();
+    // 断引用：钩子由 Loader 按 owner 回收，这里只保证不会有人再经本模块的
+    // g_api 调到已卸载的 Loader 入口。
+    g_api = nullptr;
 }

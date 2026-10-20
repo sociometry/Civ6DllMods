@@ -15,6 +15,9 @@
 		<Filter Include="APIExtension">
 			<UniqueIdentifier>{5C3D7E92-4B18-4A60-B1F4-9D2E6A0F8C35}</UniqueIdentifier>
 		</Filter>
+		<Filter Include="GameplayExtension">
+			<UniqueIdentifier>{7D4F8A13-6C29-4B85-A3E1-9F5B2C7D4E60}</UniqueIdentifier>
+		</Filter>
 		<Filter Include="Common">
 			<UniqueIdentifier>{9B2E6D53-7A4C-4E19-8F60-3C1D5B7A2E48}</UniqueIdentifier>
 		</Filter>
@@ -50,11 +53,11 @@
 		<ClInclude Include="APIExtension\UnitLevelAPI\UnitLevelAPI.h">
 			<Filter>APIExtension</Filter>
 		</ClInclude>
-			<Filter>APIExtension</Filter>
+		<ClInclude Include="GameplayExtension\AdjustPlotPropertyEffect\AdjustPlotPropertyEffect.h">
+			<Filter>GameplayExtension</Filter>
 		</ClInclude>
-			<Filter>APIExtension</Filter>
-		</ClInclude>
-			<Filter>APIExtension</Filter>
+		<ClInclude Include="GameplayExtension\CustomRequirement\CustomRequirement.h">
+			<Filter>GameplayExtension</Filter>
 		</ClInclude>
 		<ClInclude Include="Common\GameCoreResolve.h">
 			<Filter>Common</Filter>
@@ -100,7 +103,14 @@
 		<ClCompile Include="APIExtension\UnitLevelAPI\UnitLevelAPI.cpp">
 			<Filter>APIExtension</Filter>
 		</ClCompile>
-			<Filter>APIExtension</Filter>
+		<ClCompile Include="GameplayExtension\AdjustPlotPropertyEffect\AdjustPlotProperty.cpp">
+			<Filter>GameplayExtension</Filter>
+		</ClCompile>
+		<ClCompile Include="GameplayExtension\CustomRequirement\PlayerPropertyMatches.cpp">
+			<Filter>GameplayExtension</Filter>
+		</ClCompile>
+		<ClCompile Include="GameplayExtension\CustomRequirement\PlotRouteTypeMatches.cpp">
+			<Filter>GameplayExtension</Filter>
 		</ClCompile>
 		<ClCompile Include="dllmain.cpp">
 			<Filter>源文件</Filter>

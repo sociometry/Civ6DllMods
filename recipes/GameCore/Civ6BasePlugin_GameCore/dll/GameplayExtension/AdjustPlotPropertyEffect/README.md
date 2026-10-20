@@ -1,10 +1,10 @@
 # AdjustPlotPropertyEffect
 
-在 runtime 中注入 `EFFECT_ADJUST_PLOT_PROPERTY` 的脚手架示范。
+往 GameEffects 注册表注入 `EFFECT_ADJUST_PLOT_PROPERTY`（`GameplayExtension` 分类下的示例模块）。
 
 ## 当前行为
 
-`AdjustPlotProperty.cpp` 在 `OnLoad` 注册该 effect：
+`AdjustPlotProperty.cpp` 的 `AdjustPlotPropertyEffect_Init` 注册该 effect（由插件入口 `dllmain.cpp` 的 `OnLoad` 调用）：
 
 1. 解析 GameCore 符号
 2. 克隆 `EffectFactory<AdjustUnitProperty>` / `AdjustUnitProperty` 虚表
@@ -12,21 +12,21 @@
 4. 把 factory 挂进 `Registry<IModifierEffectFactory>::GetTypes()`
 5. Apply/Remove：经 `IPlotInterface` → 地块动态属性 ±delta
 
-配套 SQL/Lua 在 `Civ6Mod/`（无 `.modinfo`）。
+配套 SQL 在 [Civ6Mod/Data/Gameplay.sql](../../../Civ6Mod/Data/Gameplay.sql) 的 `B.` 段（与两个 Requirement 的示范数据在同一份文件里）。
 
 ## 构建
 
 ```powershell
-msbuild recipes\GameCore\AdjustPlotPropertyEffect\dll\AdjustPlotPropertyEffect.vcxproj /p:Configuration=Release /p:Platform=x64
+& MSBuild.exe recipes\GameCore\Civ6BasePlugin_GameCore\dll\Civ6BasePlugin_GameCore.vcxproj /t:Rebuild /m /p:Configuration=Release /p:Platform=x64
 ```
 
-产物：`x64/Release/AdjustPlotPropertyEffect.dll`。组装完整 mod 见 `docs/template/`。
+产物：`x64\Release\Civ6BasePlugin_GameCore.dll`（本模块已并进这个插件）。
 
 ## 文件
 
-- `dll/AdjustPlotProperty.cpp` / `.h`：实现
-- `dll/dllmain.cpp`：入口
-- `Civ6Mod/`：`Data` / `Script` 素材
+- `AdjustPlotProperty.cpp`：实现
+- `AdjustPlotPropertyEffect.h`：`*_Init` / `*_Shutdown` 声明
+- 配套 SQL：`Civ6Mod/Data/Gameplay.sql` 的 `B.` 段（不在本目录）
 
 ## 当前 Loader 兼容性与重载验证
 
