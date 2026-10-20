@@ -5,7 +5,7 @@
 // 相对上一版的改动（兼容性修复）：
 //   1) 删除 RegisterGameCoreReady / RegisterGameCoreTeardown（本工程是 GameCore 插件，
 //      OnLoad 时 GameCore 已就绪；退局由 Loader 按 owner 回滚钩子）；
-//   2) 取址改为「符号名为主 + AOB 兜底 + 前导字节校验」，不再依赖裸 RVA。
+//   2) 取址改为「符号名为主 + AOB 兜底」，不再依赖裸 RVA。
 //
 // 反编译核实（当前 Steam 版 GameCore_XP2_FinalRelease.dll IDB）：
 //
@@ -15,7 +15,7 @@
 //     每项前三个 int 为 {objectType, yieldType, amount}；首个满足
 //     [i]==objType && i[1]==yieldType && dword[i+8]>0 的条目**立即返回**其
 //     amount，无命中返回 0。多条同 (objType,yieldType) 来源时只计首条 =
-//     加成不叠加的根因。前导字节 48 8B 41 68 4C 8B 49 70（AOB 唯一命中）。
+//     加成不叠加的根因。序言 48 8B 41 68 4C 8B 49 70（AOB 唯一命中）。
 //
 //   唯一调用方：City::Buildings::GetBuildingYieldFromGreatWorks（城市巨作产出）。
 //

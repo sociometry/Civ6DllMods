@@ -7,10 +7,39 @@
 //   1) 主路径：符号名（demangled 或 MSVC 修饰名）—— 走 Loader 的 PdataMatch
 //      跨版本对齐，版本一致时是恒等映射；
 //   2) 兜底：AOB 特征码 —— 只有在该特征串于当前 IDB 内**唯一命中**时才附带
-//      （见各模块的 kAob* 常量注释），避免"兜底兜到别的函数上"；
-//   3) 装钩前再用 PrologueMatches 校验目标处字节形态，对不上就跳过并记日志。
+//      （见各模块的 kAob* 常量注释），避免"兜底兜到别的函数上"。
 //
-// 为什么不再用裸 RVA：ResolveByRva 只有在 Loader 的 sidecar 与当前映像对得上时
+// ============================================================================
+// 【关于函数序言校验（Prologue Check）：慎用，本工程已停用】
+//
+// 术语：「函数序言」= function prologue，指函数入口处的前几条指令
+//       （建立栈帧、保存寄存器等）。旧文档里的"前导字节"不是规范译法。
+//
+// 旧版本在解析出地址后，会把目标序言的 N 个字节与硬编码期望值比对，
+// 对不上就判定"游戏更新了"并放弃功能。它在多插件环境里有明显副作用：
+//
+//   · 序言是"函数入口的机器码"。只要有人在目标函数上下过 hook / patch，
+//     入口就会被改写成 jmp（E9 xx xx xx xx）或热补丁形态，
+//     于是后加载的插件读到的已不是原始字节，校验必然失败。
+//   · 实测事故：本工程的一个模块先对 AddGreatWorkToSlot 装钩，
+//     另一个模块随后做序言校验，读到被改写的入口 → 判定 mismatch →
+//     整个 Lua API 组被标记为"符号不完整"并全部返回 false。
+//   · 顺序依赖：谁能通过校验取决于插件加载顺序，属不可控的隐性耦合。
+//   · 失败原因不可辨：符号对齐错 vs 入口被改写，表象都是 mismatch。
+//
+// 因此：**序言校验已从本工程全部停用**。
+// 判断"符号是否指向正确的函数"时，优先改用：
+//   1) 符号名（首选，跨版本由 Loader 的 PdataMatch 对齐）；
+//   2) 在当前 IDB 内唯一命中的 AOB（作为兜底）；
+//   3) 调用前的轻量运行期自检（返回值范围、空指针、枚举合法性）。
+//
+// 例外：如果某个目标【确定不会被其它插件 hook】、且特征码足够长且在当前 IDB
+// 内唯一，那么加序言校验是合理的 —— 但必须做到"失败只降级、不连带"，
+// 即序言不匹配时只关掉这一项功能，不要据此关掉整组功能。
+// 详见 docs/PLUGIN_GUIDE.md §5.9。
+// ============================================================================
+//
+// 为什么不用裸 RVA：ResolveByRva 只有在 Loader 的 sidecar 与当前映像对得上时
 // 才有意义；一旦对不上（kHookApiDbNoContext）它会**原样透传**旧 RVA，直接把钩子
 // 装到错误的函数上。符号名 + AOB 是更安全的写法。
 //
@@ -21,7 +50,6 @@
 #include "HookAPI.h"
 
 #include <cstdint>
-#include <cstring>
 
 namespace gc {
 
@@ -33,122 +61,16 @@ inline T Resolve(HookAPI* api, HookImageId image, const HookInfo& info, size_t s
 	return reinterpret_cast<T>(ResolveByHookInfo(api, image, info, span));
 }
 
-// 校验目标处的前导字节形态。游戏更新后若符号库把名字对到了别的函数上，
-// 这一步能拦住（符号库跨版本对齐本身有失败概率）。
-inline bool PrologueMatches(const void* target, const uint8_t* expect, size_t len) {
-	return target && expect && len > 0 && std::memcmp(target, expect, len) == 0;
-}
-
-// 支持 "??" 通配的版本。value 与 mask 各 len 字节，mask=0xFF 表示该字节必须相等，
-// mask=0x00 表示跳过。用于跨过 RIP 相对位移（disp32）这类随重定位变化的字节，
-// 让校验能延伸到位移之后的关键字节（例如函数的 retn）。
-inline bool PrologueMatchesMasked(const void* target, const uint8_t* value,
-	const uint8_t* mask, size_t len) {
-	if (!target || !value || !mask || len == 0) return false;
-	const auto* bytes = static_cast<const uint8_t*>(target);
-	for (size_t i = 0; i < len; ++i) {
-		if ((bytes[i] & mask[i]) != (value[i] & mask[i])) return false;
-	}
-	return true;
-}
-
-// 把 "48 8B 05 ?? ?? ?? ?? C3" 这样的文本特征码在编译期转成 value/mask 两个数组。
-// 允许 '?' 或 '??' 表示通配，其余必须是两位十六进制。
-template <size_t N>
-struct AobPattern {
-	uint8_t value[N]{};
-	uint8_t mask[N]{};
-	size_t count = 0;   // 实际字节数（N 是文本长度，比字节数大）
-	bool ok = false;
-};
-
-constexpr int HexNibble(char c) {
-	if (c >= '0' && c <= '9') return c - '0';
-	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-	return -1;
-}
-
-template <size_t N>
-constexpr AobPattern<N> ParseAob(const char (&text)[N]) {
-	AobPattern<N> out{};
-	size_t count = 0;
-	int hi = -1;      // 已读到的高半字节；-1 表示本字节尚未开始
-	bool wildcard = false;
-	for (size_t i = 0; i + 1 < N; ++i) {
-		const char c = text[i];
-		if (c == ' ' || c == '\t') {
-			if (hi >= 0 || wildcard) {
-				if (count < N) {
-					out.value[count] = wildcard ? 0 : static_cast<uint8_t>(hi << 4);
-					out.mask[count] = wildcard ? 0 : 0xFF;
-					++count;
-				}
-				hi = -1;
-				wildcard = false;
-			}
-			continue;
-		}
-		if (c == '?') { wildcard = true; continue; }
-		const int nib = HexNibble(c);
-		if (nib < 0) return out;   // 非法字符：ok 保持 false
-		if (hi < 0) {
-			hi = nib;
-		} else {
-			if (count < N) {
-				out.value[count] = static_cast<uint8_t>((hi << 4) | nib);
-				out.mask[count] = 0xFF;
-				++count;
-			}
-			hi = -1;
-		}
-	}
-	if (hi >= 0 || wildcard) {
-		if (count < N) {
-			out.value[count] = wildcard ? 0 : static_cast<uint8_t>(hi << 4);
-			out.mask[count] = wildcard ? 0 : 0xFF;
-			++count;
-		}
-	}
-	out.count = count;
-	out.ok = count > 0;
-	return out;
-}
-
-// 用法：
-//   constexpr auto kSigGameEdit = gc::ParseAob("48 8B 05 ?? ?? ?? ?? C3");
-//   gc::ResolveVerifiedAob<Fn>(api, image, info, "label", kSigGameEdit);
-
-// 组合动作：解析 + 校验前导字节。任一失败返回 nullptr 并（可选）打日志。
+// 兼容旧调用点的包装：解析 +（已停用的）序言校验参数。
+//
+// 参数 sig / sigLen 仍然保留，纯粹为了不改动各模块的调用代码；
+// 它们现在【完全不被使用】。新代码请直接调用 Resolve<T>()。
 template <typename T>
 inline T ResolveVerified(HookAPI* api, HookImageId image, const HookInfo& info,
-	const uint8_t* sig, size_t sigLen, const char* label) {
+	const uint8_t* /*sig*/, size_t /*sigLen*/, const char* label) {
 	T fn = Resolve<T>(api, image, info, 16);
-	if (!fn) {
-		if (api && label) api->Log("[%s] target not resolvable (symbol + aob both failed)", label);
-		return nullptr;
-	}
-	if (sig && sigLen && !PrologueMatches(reinterpret_cast<const void*>(fn), sig, sigLen)) {
-		if (api && label) api->Log("[%s] prologue mismatch - game updated? feature skipped", label);
-		return nullptr;
-	}
-	return fn;
-}
-
-// 同上，但前导字节用带通配的文本特征码（会跳过 disp32 之类的可变字节）。
-// pattern 以模板参数传入，ParseAob 才能当常量表达式求值。
-template <typename T, size_t N>
-inline T ResolveVerifiedAob(HookAPI* api, HookImageId image, const HookInfo& info,
-	const char* label, const AobPattern<N>& parsed) {
-	T fn = Resolve<T>(api, image, info, 16);
-	if (!fn) {
-		if (api && label) api->Log("[%s] target not resolvable (symbol + aob both failed)", label);
-		return nullptr;
-	}
-	if (parsed.ok && !PrologueMatchesMasked(reinterpret_cast<const void*>(fn),
-			parsed.value, parsed.mask, parsed.count)) {
-		if (api && label) api->Log("[%s] prologue mismatch - game updated? feature skipped", label);
-		return nullptr;
+	if (!fn && api && label) {
+		api->Log("[%s] target not resolvable (symbol + aob both failed)", label);
 	}
 	return fn;
 }

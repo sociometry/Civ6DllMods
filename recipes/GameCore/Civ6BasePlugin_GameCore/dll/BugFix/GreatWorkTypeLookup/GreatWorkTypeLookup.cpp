@@ -7,7 +7,7 @@
 // 相对上一版的改动（兼容性修复）：
 //   1) 删除 RegisterGameCoreReady / RegisterGameCoreTeardown：本工程是 GameCore 插件，
 //      OnLoad 时 GameCore 已就绪，代际回调没有意义；退局由 Loader 按 owner 回滚。
-//   2) 取址改为「符号名（含修饰名）为主 + AOB 兜底 + 前导字节校验」，
+//   2) 取址改为「符号名（含修饰名）为主 + AOB 兜底」，
 //      不再依赖裸 RVA（见 Common/GameCoreResolve.h）。
 //   3) 缓存表加容量上限，避免异常哈希把表撑爆。
 //
@@ -69,9 +69,10 @@ constexpr HookInfo kTargetGetIndexSlot = HookName(
 constexpr HookInfo kTargetGetIndexObject = HookName(
 	"?GetIndex@Types@GameCore@@YA?AW4GreatWorkObjectTypes@2@W432@@Z");
 
+// 序言校验已移除（入口可能被其它插件改写）。这两个常量仅为兼容
+// ResolveVerified 的参数签名而保留，不再参与任何判定。
 constexpr uint8_t kSigNameToSlot[6]   = { 0x81, 0xF9, 0xC9, 0x7B, 0x6C, 0x2F };
 constexpr uint8_t kSigNameToObject[6] = { 0x81, 0xF9, 0xA8, 0xB7, 0xAF, 0x05 };
-constexpr uint8_t kSigGetIndex[8]     = { 0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x8B, 0xD9 };
 
 // 缓存上限：正常游戏里巨作类型总数 < 200，超过这个数说明哈希空间异常。
 constexpr size_t kMaxCacheEntries = 4096;
@@ -149,12 +150,13 @@ void GreatWorkTypeLookup_Init(HookAPI* api) {
 		t.base_GetIndex = nullptr;
 		t.cache.clear();   // 定义索引跨代不稳定，整代表作废
 
-		// 数据驱动解析器：修饰名精确匹配，只做前导字节校验。
+		// 数据驱动解析器：只靠修饰名精确匹配。
+		// 不做序言校验 —— 入口可能被其它插件 hook/patch 改写，比对会误判。
+		// 详见 Common/GameCoreResolve.h 顶部说明。
 		void* getIndex = gc::Resolve<void*>(api, kHookImageGameCoreXP2, *t.getIndexInfo, 16);
-		if (!gc::PrologueMatches(getIndex, kSigGetIndex, sizeof(kSigGetIndex))) {
+		if (!getIndex) {
 			api->Log("[GreatWorkTypeLookup] %s: data-driven resolver unavailable"
 				" - falling back to the hardcoded table only", t.label);
-			getIndex = nullptr;
 		} else {
 			t.base_GetIndex = reinterpret_cast<ResolveFn>(getIndex);
 		}

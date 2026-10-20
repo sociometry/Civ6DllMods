@@ -36,7 +36,7 @@
 
 namespace {
 
-// ---- Experience::SetLevel：符号名唯一，附前导字节校验 ----
+// ---- Experience::SetLevel：符号名唯一 ----
 constexpr HookInfo kTargetSetLevel = HookName(
 	"GameCore::Unit::Experience::SetLevel",
 	"48 83 EC 38 48 8B 01 44 8B C2 89 51 10 48 8D 54");
