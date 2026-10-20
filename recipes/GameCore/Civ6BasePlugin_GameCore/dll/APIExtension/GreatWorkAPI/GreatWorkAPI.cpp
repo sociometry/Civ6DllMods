@@ -99,6 +99,7 @@ constexpr size_t GWSLOT_SIZE        = 0x08;
 constexpr size_t OFF_GWSLOT_INDEX   = 0x04;
 constexpr int    kEmptyGwSlot       = -1;
 constexpr int    kMaxSanityCount    = 4096;
+constexpr int    kMaxPlayerScan     = 64;    // 玩家槽位上限，越界读到 nullptr 自动截止
 
 HookAPI* g_api = nullptr;
 
@@ -127,29 +128,59 @@ FindOrAddGreatWorkOrigFn g_origFindOrAddGreatWork = nullptr;   // FindOrAddGreat
 // ---------------------------------------------------------------------------
 
 // 前向声明（实现在下方"同一 greatWorkType 的多份支持"一节）
-bool IndexInUse(void* buildings, int listIndex);
+bool IndexInUseInBuildings(void* buildings, int listIndex);
+bool IndexInUseAnywhere(int listIndex);
 int  AppendDuplicateGreatWork(void* culture, unsigned int greatWorkType);
 
-// 创建/查找巨作条目并设置归属玩家，返回 listIndex（失败返回 -1）。
+// 为「新增一件巨作」准备一条独占的 greatWorks 条目，返回 listIndex（失败 -1）。
 //
-// buildings 非空时：若拿到的 listIndex 已经躺在这个 Buildings 的某个槽里
-// （说明是同一 greatWorkType 的第 2、3… 份），则强制新建一条唯一条目，
-// 保证「一个 index 只在一个槽」，从而让引擎的 RemoveGreatWork 等函数行为正确。
-// buildings 为空时退化为原始语义（纯查找）。
+// ============================================================================
+// 【语义】本函数只服务「新增」，不服务「搬移」
+//
+// 搬移（MOVE_GREAT_WORK / 迁都 / 建筑搬迁）必须沿用原 index，因为它在语义上
+// 就是同一件巨作换了个位置。那些路径走引擎自己的 Process / RelocateBuildingGreatWorks，
+// 不经过本函数。
+//
+// 而「新增」要求一件巨作独占一条记录。判断标准是【全局】占用，不是本城占用：
+//   greatWorks 列表是 Game::Culture 级别的，条目里的 player 字段也只有一个，
+//   同一个 index 若同时出现在两座城市，就是同一件巨作被复制了两份；
+//   跨玩家添加时还会把前一件的所有者改掉。
+// ============================================================================
+//
+// 三个必须守住的点：
+//
+//   1) 判断用 IndexInUseAnywhere（全局），不是只看目标城市。
+//      否则「玩家1城市A已有 type42」后再给「玩家2城市B」加，会复用同一个 index，
+//      并把 player 字段从 1 改成 2 —— 城市A 那件的归属就被篡改了。
+//
+//   2) 新建失败时【绝不退回】已被占用的旧索引。
+//      退回等于主动制造"一个 index 两处"，正是本函数要避免的。
+//
+//   3) 写 player 只在新条目上做。已经在用的条目属于别处，一律不碰。
 int EnsureGreatWork(void* culture, unsigned int greatWorkIndex, int playerId, void* buildings = nullptr) {
 	if (!culture || !g_findOrAddGreatWork || !g_setGreatWorkPlayer) return -1;
 	int listIndex = g_findOrAddGreatWork(culture, greatWorkIndex);
 	if (listIndex < 0) return -1;
 
-	if (buildings && IndexInUse(buildings, listIndex)) {
+	// 全局占用判断：buildings 非空即表示"这是新增，需要独占条目"。
+	const bool needOwn = (buildings != nullptr);
+	const bool inUse   = needOwn && IndexInUseAnywhere(listIndex);
+
+	if (inUse) {
 		const int dup = AppendDuplicateGreatWork(culture, greatWorkIndex);
-		if (dup >= 0) {
+		if (dup < 0) {
+			// 新建失败 —— 不能退回正在使用的旧索引（会造出一个 index 两处）。
 			if (g_api) {
-				g_api->Log("[GreatWorkAPI] duplicate great work: gw=%u reuse=%d -> new=%d",
-					greatWorkIndex, listIndex, dup);
+				g_api->Log("[GreatWorkAPI] duplicate great work failed: gw=%u reuse=%d (still in use)",
+					greatWorkIndex, listIndex);
 			}
-			listIndex = dup;
+			return -1;
 		}
+		if (g_api) {
+			g_api->Log("[GreatWorkAPI] duplicate great work: gw=%u reuse=%d -> new=%d",
+				greatWorkIndex, listIndex, dup);
+		}
+		listIndex = dup;
 	}
 
 	g_setGreatWorkPlayer(culture, listIndex, playerId);
@@ -188,7 +219,7 @@ int EnsureGreatWork(void* culture, unsigned int greatWorkIndex, int playerId, vo
 // ---------------------------------------------------------------------------
 
 // 判断某个 listIndex 是否已经出现在该 Buildings 的任意槽里。
-bool IndexInUse(void* buildings, int listIndex) {
+bool IndexInUseInBuildings(void* buildings, int listIndex) {
 	if (!buildings || listIndex < 0) return false;
 	char* b = static_cast<char*>(buildings);
 
@@ -205,6 +236,38 @@ bool IndexInUse(void* buildings, int listIndex) {
 		char* sp = static_cast<char*>(slots);
 		for (int k = 0; k < num; ++k, sp += GWSLOT_SIZE) {
 			if (*reinterpret_cast<int*>(sp + OFF_GWSLOT_INDEX) == listIndex) return true;
+		}
+	}
+	return false;
+}
+
+// 判断某个 listIndex 是否已经被【任意玩家的任意城市】占用。
+//
+// 为什么必须查全局：greatWorks 列表是 Game::Culture 级别的（全局唯一），
+// 条目里的 player 字段也只有一个。所以「同一 index 出现在两座城市」在语义上
+// 就是同一件巨作被复制了两份 —— 跨玩家添加时还会把前一件的所有者改掉。
+//
+// 遍历范围：所有玩家（0..kMaxPlayerScan-1）-> Cities 链表 -> 每个 City 的 Buildings。
+// 玩家槽位由引擎保证连续，越界索引在链表头读到 nullptr，天然截止。
+bool IndexInUseAnywhere(int listIndex) {
+	if (!g_api || !g_api->GetPlayer || listIndex < 0) return false;
+
+	for (int playerId = 0; playerId < kMaxPlayerScan; ++playerId) {
+		void* player = g_api->GetPlayer(playerId);
+		if (!player) continue;
+
+		void* cities = *reinterpret_cast<void**>(static_cast<char*>(player) + OFF_PLAYER_CITIES);
+		if (!cities) continue;
+
+		void** node = *reinterpret_cast<void***>(static_cast<char*>(cities) + OFF_CITIES_HEAD);
+		int guard = 0;
+		while (node && guard++ < kMaxSanityCount) {
+			void* city = node[0];
+			if (city) {
+				void* buildings = static_cast<char*>(city) + OFF_CITY_BUILDINGS;
+				if (IndexInUseInBuildings(buildings, listIndex)) return true;
+			}
+			node = reinterpret_cast<void**>(node[2]);
 		}
 	}
 	return false;

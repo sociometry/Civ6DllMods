@@ -120,15 +120,13 @@ ChangeExtraGreatWorkSlotsFn g_origChange = nullptr;
 struct PendingSlot {
 	int slotType;
 	int greatWorkIndex;
-	int slotIndex;        // 原记录中的绝对槽位下标（保留，用于日志/兜底）
-	int nthOfType;        // 该 slotType 在原记录中第几次出现（0-based）
+	int slotIndex;        // 原记录中的绝对槽位下标（第一轮原位回归用）
 };
 
 struct PendingGreatWork {
 	bool                     valid = false;
 	int                      buildingType = -1;
 	std::vector<PendingSlot> slots;
-	std::vector<int>         shape;   // 重建前每个槽的 slotType 序列（按绝对下标）
 };
 
 PendingGreatWork g_pending;
@@ -137,7 +135,6 @@ void ResetPending() {
 	g_pending.valid = false;
 	g_pending.buildingType = -1;
 	g_pending.slots.clear();
-	g_pending.shape.clear();
 }
 
 // 在 greatWorkBuildings 里找指定 buildType 的第一条记录（只读，不改数组）。
@@ -171,26 +168,14 @@ void CapturePendingSlots(void* buildings, int buildType) {
 	const int num = *reinterpret_cast<int*>(info + OFF_INFO_NUM);
 	if (!slots || num <= 0 || num > kMaxSanityCount) return;
 
-	// 记录完整 shape（每个槽的 slotType），并给每个有效槽算"同类型内第几个"。
-	std::vector<int> typeList;
-	typeList.reserve(static_cast<size_t>(num));
+	// 只记录有效槽：slotType + greatWorkIndex + 原绝对下标。
+	// 绝对下标用于出口的第一轮"原位回归"（改槽数往往只在末尾增删，位置不变）。
 	char* sp = static_cast<char*>(slots);
 	for (int i = 0; i < num; ++i, sp += SLOT_SIZE) {
-		typeList.push_back(*reinterpret_cast<int*>(sp + OFF_SLOT_TYPE));
-	}
-	g_pending.shape = typeList;
-
-	sp = static_cast<char*>(slots);
-	for (int i = 0; i < num; ++i, sp += SLOT_SIZE) {
 		const int gwIndex = *reinterpret_cast<int*>(sp + OFF_SLOT_INDEX);
-		if (gwIndex != kEmptySlot) {
-			const int st = typeList[i];
-			int nth = 0;
-			for (int k = 0; k < i; ++k) {
-				if (typeList[k] == st) ++nth;
-			}
-			g_pending.slots.push_back(PendingSlot{ st, gwIndex, i, nth });
-		}
+		if (gwIndex == kEmptySlot) continue;
+		const int st = *reinterpret_cast<int*>(sp + OFF_SLOT_TYPE);
+		g_pending.slots.push_back(PendingSlot{ st, gwIndex, i });
 	}
 	if (g_pending.slots.empty()) return;
 
@@ -198,7 +183,23 @@ void CapturePendingSlots(void* buildings, int buildType) {
 	g_pending.buildingType = buildType;
 }
 
-// 把暂存内容按 slotType 回填到空槽上。只写 greatWorkIndex，不动任何结构。
+// 把暂存内容回填到空槽上。只写 greatWorkIndex，不动任何结构。
+//
+// 分两轮，目的都是"尽量把能留下的留下"：
+//
+//   第一轮 —— 原位回归。
+//              重建后的槽位下标若仍然存在、且 slotType 与暂存项一致、且该槽为空，
+//              就把巨作放回原来的位置。这是最精确的恢复，同种巨作并存也不会串位。
+//
+//   第二轮 —— 兼容空槽顺延。
+//              第一轮没放回去的（典型场景：缩容导致槽位前移 / 该位置已被占用），
+//              在剩余的空槽里找同 slotType 的依次填入，每个暂存项只用一次，
+//              每个槽只填一次。
+//
+// 只在【第二轮也填不下】时才真正丢数据 —— 那是容量真的不够，会打日志说明，
+// 而不是把"有空间"和"没空间"两种情况都静默丢弃。
+//
+// 红线：绝不覆盖已有内容（只在 greatWorkIndex == kEmptySlot 的槽上写）。
 int RestorePendingSlots(void* buildings, int buildType) {
 	if (!g_pending.valid || g_pending.buildingType != buildType) return 0;
 	if (g_pending.slots.empty()) return 0;
@@ -210,75 +211,69 @@ int RestorePendingSlots(void* buildings, int buildType) {
 	const int num = *reinterpret_cast<int*>(info + OFF_INFO_NUM);
 	if (!slots || num <= 0 || num > kMaxSanityCount) return 0;
 
-	// 回填策略（两级）：
-	//
-	//  一级 —— 若重建后的槽【数量与 slotType 序列完全一致】，直接按绝对下标还原。
-	//          这是最常见的情况（改槽数只是在末尾增删额外槽），最精确，
-	//          同种巨作并存时也不会串位。
-	//
-	//  二级 —— 否则（槽序列变了），退化为按 slotType 分组、组内顺序填充。
-	//          宁可少填也不错填：只填空槽，且每个暂存项只用一次。
+	char* base = static_cast<char*>(slots);
+
+	// 每个暂存项是否已恢复；每个槽是否已被本次填过。
+	std::vector<bool> done(g_pending.slots.size(), false);
+	std::vector<bool> slotUsed(static_cast<size_t>(num), false);
+
 	int restored = 0;
 
-	// ---- 一级：序列完全一致 → 绝对下标还原 ----
-	bool sameShape = (num == static_cast<int>(g_pending.shape.size()));
-	if (sameShape) {
-		char* p = static_cast<char*>(slots);
-		for (int i = 0; i < num; ++i, p += SLOT_SIZE) {
-			if (*reinterpret_cast<int*>(p + OFF_SLOT_TYPE) != g_pending.shape[i]) {
-				sameShape = false;
-				break;
-			}
-		}
+	// ---- 第一轮：原位回归 ----
+	for (size_t k = 0; k < g_pending.slots.size(); ++k) {
+		const PendingSlot& ps = g_pending.slots[k];
+		const int idx = ps.slotIndex;
+		if (idx < 0 || idx >= num) continue;          // 该位置已不存在（缩容）
+		if (slotUsed[static_cast<size_t>(idx)]) continue;
+
+		char* sp = base + static_cast<ptrdiff_t>(SLOT_SIZE) * idx;
+		if (*reinterpret_cast<int*>(sp + OFF_SLOT_TYPE) != ps.slotType) continue;  // 槽类型变了
+		if (*reinterpret_cast<int*>(sp + OFF_SLOT_INDEX) != kEmptySlot) continue;  // 已被占
+
+		*reinterpret_cast<int*>(sp + OFF_SLOT_INDEX) = ps.greatWorkIndex;
+		slotUsed[static_cast<size_t>(idx)] = true;
+		done[k] = true;
+		++restored;
 	}
 
-	if (sameShape) {
-		char* p = static_cast<char*>(slots);
-		for (int i = 0; i < num; ++i, p += SLOT_SIZE) {
-			if (*reinterpret_cast<int*>(p + OFF_SLOT_INDEX) != kEmptySlot) continue;
-			for (size_t k = 0; k < g_pending.slots.size(); ++k) {
-				const PendingSlot& ps = g_pending.slots[k];
-				if (ps.slotIndex != i) continue;
-				*reinterpret_cast<int*>(p + OFF_SLOT_INDEX) = ps.greatWorkIndex;
+	const int inPlace = restored;
+
+	// ---- 第二轮：剩余空槽顺延填 ----
+	// 按【槽类型】分组配对：对每个还没恢复的暂存项，找第一个类型相同、且仍为空的槽。
+	// 这样即便槽位整体前移、或同类型槽之间有空缺，也能把巨作放下。
+	if (restored < static_cast<int>(g_pending.slots.size())) {
+		for (size_t k = 0; k < g_pending.slots.size(); ++k) {
+			if (done[k]) continue;
+			const PendingSlot& ps = g_pending.slots[k];
+
+			for (int i = 0; i < num; ++i) {
+				if (slotUsed[static_cast<size_t>(i)]) continue;
+				char* sp = base + static_cast<ptrdiff_t>(SLOT_SIZE) * i;
+				if (*reinterpret_cast<int*>(sp + OFF_SLOT_TYPE) != ps.slotType) continue;
+				if (*reinterpret_cast<int*>(sp + OFF_SLOT_INDEX) != kEmptySlot) continue;
+
+				*reinterpret_cast<int*>(sp + OFF_SLOT_INDEX) = ps.greatWorkIndex;
+				slotUsed[static_cast<size_t>(i)] = true;
+				done[k] = true;
 				++restored;
 				break;
 			}
 		}
-		if (g_api) {
-			g_api->Log("[GreatWorkPreserve] bt=%d shape-match restored=%d/%d",
-				buildType, restored, static_cast<int>(g_pending.slots.size()));
-		}
-		return restored;
 	}
 
-	// ---- 二级：序列变了 → 按 slotType 分组顺序填充 ----
-	// 对每种 slotType，收集"重建后该类型的空槽"和"暂存里该类型的项"，按出现顺序配对。
-	char* sp = static_cast<char*>(slots);
-	for (int i = 0; i < num; ++i, sp += SLOT_SIZE) {
-		const int wantType = *reinterpret_cast<int*>(sp + OFF_SLOT_TYPE);
-
-		// 计算当前槽是"该类型内第几个"（重建后）
-		int nth = 0;
-		for (int k = 0; k < i; ++k) {
-			const char* prev = static_cast<char*>(slots) + static_cast<ptrdiff_t>(SLOT_SIZE) * k;
-			if (*reinterpret_cast<const int*>(prev + OFF_SLOT_TYPE) == wantType) ++nth;
-		}
-
-		if (*reinterpret_cast<int*>(sp + OFF_SLOT_INDEX) != kEmptySlot) continue;
-
-		for (size_t k = 0; k < g_pending.slots.size(); ++k) {
-			const PendingSlot& ps = g_pending.slots[k];
-			if (ps.slotType != wantType) continue;
-			if (ps.nthOfType != nth) continue;
-
-			*reinterpret_cast<int*>(sp + OFF_SLOT_INDEX) = ps.greatWorkIndex;
-			++restored;
-			break;
-		}
-	}
+	const int total = static_cast<int>(g_pending.slots.size());
 	if (g_api) {
-		g_api->Log("[GreatWorkPreserve] bt=%d shape-changed restored=%d/%d",
-			buildType, restored, static_cast<int>(g_pending.slots.size()));
+		g_api->Log("[GreatWorkPreserve] bt=%d in-place=%d filled=%d restored=%d/%d",
+			buildType, inPlace, restored - inPlace, restored, total);
+	}
+
+	// 真正填不下才报告丢失（容量不足），并且指明是哪几个 index。
+	if (restored < total && g_api) {
+		for (size_t k = 0; k < g_pending.slots.size(); ++k) {
+			if (done[k]) continue;
+			g_api->Log("[GreatWorkPreserve] bt=%d LOST gwIndex=%d slotType=%d (no compatible empty slot)",
+				buildType, g_pending.slots[k].greatWorkIndex, g_pending.slots[k].slotType);
+		}
 	}
 	return restored;
 }

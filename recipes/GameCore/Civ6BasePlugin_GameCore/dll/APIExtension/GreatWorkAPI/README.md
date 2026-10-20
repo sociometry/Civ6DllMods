@@ -95,19 +95,47 @@ CE 的同样实现也有这个问题。
 
 ```
 1. 正常调 FindOrAddGreatWork(type) 拿到 index i
-2. 若 i 已经躺在该 Buildings 的某个槽里（说明是第 2、3… 份）：
+2. 若 i 已经被【任意玩家的任意城市】占用：
      a. 用一个列表里不存在的【假类型】调 FindOrAddGreatWork
         —— 查找必然未命中，引擎走自己的 DoInsertValue 追加路径
      b. 重新取新条目地址（可能因扩容而移动），把类型改成目标类型
         返回新下标 j
+     c. 造不出来就返回 -1，【绝不退回】占用中的旧索引
 3. SetGreatWorkPlayer(j, playerId)
 ```
 
 这样完全复用引擎的追加逻辑（内存管理、字段初始化、容量增长全部正确），
 不需要手工构造 `GreatWork`、不需要调 `DoInsertValue`、不需要 hook 任何函数。
 
-`IndexInUse` 只扫描**这一个 `Buildings` 对象**的槽 —— 因为 `RemoveGreatWork` 也只在
-单个 `Buildings` 内扫描，所以「同一建筑内 index 唯一」就足以让引擎行为正确。
+### 判重范围必须是全局，不是本城
+
+早期版本用 `IndexInUse(buildings, i)` 只扫目标城市的槽，理由是
+「`RemoveGreatWork` 也只在单个 `Buildings` 内扫，所以建筑内唯一就够」。
+这个理由是**错的** —— 漏掉了两件事：
+
+| 遗漏点 | 后果 |
+| --- | --- |
+| `greatWorks` 列表是 `Game::Culture` 级别、全局唯一 | 同一个 index 出现在两座城市 = 同一件巨作被复制成两份 |
+| 条目里的 `player` 字段也只有一个 | **跨玩家**添加时 `SetGreatWorkPlayer` 会把前一件的所有者改掉 |
+
+具体复现：玩家1 城市A 加类型 42 → index 0（owner=1）；
+玩家2 城市B 再加类型 42 → `FindOrAddGreatWork` 仍返回 0（按 type 命中），
+本城检查又是 false → 复用 0 → owner 被改成 2。城市A 那件巨作被"过户"了。
+
+所以现在改用 `IndexInUseAnywhere(i)`，遍历所有玩家的所有城市：
+
+```c
+for (int playerId = 0; playerId < kMaxPlayerScan; ++playerId) {
+    void* player = g_api->GetPlayer(playerId);
+    if (!player) continue;
+    // player -> Cities 链表 -> 每个 City 的 Buildings -> 槽
+    // 命中 return true
+}
+```
+
+> 语义边界：「搬移既有巨作」**不经过**这里 —— `MOVE_GREAT_WORK` / 迁都 /
+> 建筑搬迁走引擎自己的 `Process` / `RelocateBuildingGreatWorks`，它们必须沿用
+> 原 index（本来就是同一件巨作换位置）。本函数只服务「新增」。
 
 ### ⚠️ 两条走不通的路（会导致崩溃，勿试）
 
