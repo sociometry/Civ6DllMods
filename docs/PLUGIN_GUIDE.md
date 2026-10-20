@@ -105,12 +105,6 @@ END
 
 就这三行。**整个文件只有一个版本号，改版本只改 `FILEVERSION` 那一行。**
 
-不需要 `StringFileInfo`、`VarFileInfo`、`ProductVersion`、`CompanyName` 之类的字段——
-Loader 只读 `VS_FIXEDFILEINFO` 里的文件版本，其余一概不看。
-
-> 唯一的代价：DLL 属性页「详细信息」里看不到版本字符串。如果你需要那个界面，
-> 可以额外保留 `StringFileInfo` 块，但**它不参与加载判断**，加不加都不影响 Loader。
-
 #### Loader 怎么用它
 
 **① 没有版本 → 不加载**（上面说的门禁）。
