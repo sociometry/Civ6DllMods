@@ -28,6 +28,7 @@
 #include "HookAPI.h"
 #include "GreatWorkAPI.h"
 #include "../../Common/GameCoreResolve.h"
+#include "../../BugFix/GreatWorkModifierAttach/GreatWorkModifierAttach.h"
 
 #include <cstdint>
 
@@ -221,6 +222,27 @@ char* GetGreatWorkEntry(void* culture, int listIndex) {
 	return begin + static_cast<ptrdiff_t>(GW_ENTRY_SIZE) * listIndex;
 }
 
+// 把 greatWorkListIndex 翻译回 greatWorkType。
+//
+// 为什么需要：GreatWorkAdded 信号收的是 Definition::GreatWork 的索引，
+// 而我们放置时手上只有 Culture 列表下标。二者不是一回事：
+// 同一 greatWorkType 可以有多条列表条目（同种巨作的第 2、3… 份）。
+int GreatWorkTypeOfListIndex(void* culture, int listIndex) {
+	char* entry = GetGreatWorkEntry(culture, listIndex);
+	if (!entry) return -1;
+	return *reinterpret_cast<int*>(entry + OFF_GW_TYPE);
+}
+
+// 放置成功后通知 GameEffects 侧"有新巨作"，让它把 Modifier 挂上。
+//
+// 只在【确实新增】的路径上调用；搬移 / 窃取不调（否则重复挂载）。
+void NotifyGreatWorkAdded(void* culture, void* buildings, int listIndex) {
+	if (!culture || !buildings || listIndex < 0) return;
+	const int gwType = GreatWorkTypeOfListIndex(culture, listIndex);
+	if (gwType < 0) return;
+	GreatWorkModifierAttach_NotifyAdded(buildings, gwType);
+}
+
 // 强制为指定 greatWorkType 追加一条新条目，返回新下标（失败 -1）。
 //
 // ============================================================================
@@ -312,6 +334,7 @@ bool AddGreatWorkAuto(void* culture, unsigned int greatWorkIndex, int playerId) 
 				const int listIndex = EnsureGreatWork(culture, greatWorkIndex, playerId, buildings);
 				if (listIndex < 0) return false;
 				g_addGreatWork(buildings, listIndex);
+				NotifyGreatWorkAdded(culture, buildings, listIndex);
 				if (g_api) {
 					g_api->Log("[GreatWorkAPI] AddGreatWork ok: player=%d gw=%u list=%d",
 						playerId, greatWorkIndex, listIndex);
@@ -354,6 +377,7 @@ bool AddGreatWorkToCityCore(void* culture, unsigned int greatWorkIndex, int play
 	// 前者会逐槽校验 IsValidObjectForSlot（槽类别 vs 巨作类别），只放进合法空槽；
 	// 后者只在该建筑记录里找第一个空槽直接写，不校验类别，会把著作塞进艺术槽之类。
 	g_addGreatWork(buildings, listIndex);
+	NotifyGreatWorkAdded(culture, buildings, listIndex);
 	if (g_api) {
 		g_api->Log("[GreatWorkAPI] AddGreatWorkToCity ok: player=%d city=%d gw=%u list=%d",
 			playerId, cityId, greatWorkIndex, listIndex);

@@ -42,7 +42,27 @@ Culture::FindOrAddGreatWork(culture, type)   -> listIndex
 Culture::SetGreatWorkPlayer(culture, idx, playerId)
 Buildings::CanAddGreatWork(buildings, idx, nullptr)  -> 能否放下
 Buildings::AddGreatWork(buildings, idx)              -> 真正放入（自动挑合法槽）
+GreatWorkTypeOfListIndex(culture, idx)               -> 回查 greatWorkType
+GreatWorkModifierAttach_NotifyAdded(buildings, type) -> 通知 GameEffects 挂 Modifier
 ```
+
+### 最后一步是干什么的
+
+巨作放进去之后还要通知 GameEffects 侧一次，否则挂在它身上的 Modifier 不会生效。
+这一步由 [GreatWorkModifierAttach](../../BugFix/GreatWorkModifierAttach/README.md)
+提供（它同时修好了原版伟人激活的同款缺陷）。
+
+注意 `AddGreatWork` 收的是 `greatWorkListIndex`，而信号要的是 `greatWorkType` ——
+同种巨作的第 2、3 份是不同 listIndex、同一 type，所以必须回查 Culture 列表翻译：
+
+```c
+int GreatWorkTypeOfListIndex(void* culture, int listIndex) {
+    char* entry = GetGreatWorkEntry(culture, listIndex);   // listIndex * 0x18
+    return entry ? *(int*)(entry + OFF_GW_TYPE) : -1;      // OFF_GW_TYPE = 0x00
+}
+```
+
+模块未加载时该通知是空实现，接口主流程不受影响。
 
 ### 为什么用 `AddGreatWork` 而不是 `AddGreatWorkToSlot(..., -1)`
 

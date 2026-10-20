@@ -23,6 +23,8 @@ Civilization VI 的 **GameCore 生命周期插件工程**，跑在 [Civ6DllLoade
 | [GreatWorkTypeLookup](dll/BugFix/GreatWorkTypeLookup/README.md) | 模组新增的巨作类型 / 巨作槽类型无法被引擎识别 |
 | [GreatWorkYieldStack](dll/BugFix/GreatWorkYieldStack/README.md) | 同种巨作来自多个来源的产出加成不叠加，只有一条生效 |
 | [GreatWorkPreserve](dll/BugFix/GreatWorkPreserve/README.md) | 改变额外巨作槽数量时，该建筑已放置的巨作全部丢失 |
+| [GreatWorkModifierAttach](dll/BugFix/GreatWorkModifierAttach/README.md) | 巨作创建后不触发挂在它身上的 Modifier（伟人激活与 Lua 接口两条路） |
+| [InitUnitReturn](dll/BugFix/InitUnitReturn/README.md) | `InitUnitValidAdjacentHex` 返回 nil，拿不到建出来的单位 |
 | [UnitDamageCap](dll/BugFix/UnitDamageCap/README.md) | 单位生命值超过 100 后伤害打不死 |
 
 ### APIExtension —— 补 Lua 接口
@@ -82,6 +84,8 @@ recipes/GameCore/Civ6BasePlugin_GameCore/
     │   ├── GreatWorkTypeLookup/   + README.md
     │   ├── GreatWorkYieldStack/   + README.md
     │   ├── GreatWorkPreserve/     + README.md
+    │   ├── GreatWorkModifierAttach/ + README.md
+    │   ├── InitUnitReturn/        + README.md
     │   └── UnitDamageCap/         + README.md
     └── APIExtension/
         ├── GreatWorkAPI/          + README.md
@@ -120,6 +124,8 @@ Civ6BasePlugin_GameCore: OnLoad
 [GreatWorkTypeLookup] GreatWorkObjectType hooked; resolver=ok (modded types now resolvable)
 [GreatWorkYieldStack] hooked GetGreatWorkYieldChange; great work yields now stack
 [GreatWorkPreserve] active: extra great work slot changes keep existing great works
+[GreatWorkModifierAttach] active: great works from Great Person now fire GreatWorkAdded
+[InitUnitReturn] active: InitUnitValidAdjacentHex now returns the unit instance
 [UnitDamageCap] patched SetDamage clamp bound -> Unit::GetMaxDamage()
 [GreatWorkAPI] symbols ok; GreatWorkManager.AddGreatWork/AddGreatWorkToCity registered
 [ModifierManager] unit-method inject: reg=1 pushed=1 (unit:AttachModifierByID(id))

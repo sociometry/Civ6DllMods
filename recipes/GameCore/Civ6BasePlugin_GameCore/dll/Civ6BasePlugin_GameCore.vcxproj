@@ -97,7 +97,9 @@
 	<ItemGroup>
 		<ClInclude Include="BugFix\GreatWorkOptimizer\GreatWorkOptimizer.h" />
 		<ClInclude Include="BugFix\GreatWorkTypeLookup\GreatWorkTypeLookup.h" />
+		<ClInclude Include="BugFix\GreatWorkModifierAttach\GreatWorkModifierAttach.h" />
 		<ClInclude Include="BugFix\GreatWorkPreserve\GreatWorkPreserve.h" />
+		<ClInclude Include="BugFix\InitUnitReturn\InitUnitReturn.h" />
 		<ClInclude Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.h" />
 		<ClInclude Include="BugFix\UnitDamageCap\UnitDamageCap.h" />
 		<ClInclude Include="APIExtension\GreatWorkAPI\GreatWorkAPI.h" />
@@ -111,7 +113,9 @@
 	<ItemGroup>
 		<ClCompile Include="BugFix\GreatWorkOptimizer\GreatWorkOptimizer.cpp" />
 		<ClCompile Include="BugFix\GreatWorkTypeLookup\GreatWorkTypeLookup.cpp" />
+		<ClCompile Include="BugFix\GreatWorkModifierAttach\GreatWorkModifierAttach.cpp" />
 		<ClCompile Include="BugFix\GreatWorkPreserve\GreatWorkPreserve.cpp" />
+		<ClCompile Include="BugFix\InitUnitReturn\InitUnitReturn.cpp" />
 		<ClCompile Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.cpp" />
 		<ClCompile Include="BugFix\UnitDamageCap\UnitDamageCap.cpp" />
 		<ClCompile Include="APIExtension\GreatWorkAPI\GreatWorkAPI.cpp" />

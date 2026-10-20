@@ -26,7 +26,13 @@
 		<ClInclude Include="BugFix\GreatWorkTypeLookup\GreatWorkTypeLookup.h">
 			<Filter>BugFix</Filter>
 		</ClInclude>
+		<ClInclude Include="BugFix\GreatWorkModifierAttach\GreatWorkModifierAttach.h">
+			<Filter>BugFix</Filter>
+		</ClInclude>
 		<ClInclude Include="BugFix\GreatWorkPreserve\GreatWorkPreserve.h">
+			<Filter>BugFix</Filter>
+		</ClInclude>
+		<ClInclude Include="BugFix\InitUnitReturn\InitUnitReturn.h">
 			<Filter>BugFix</Filter>
 		</ClInclude>
 		<ClInclude Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.h">
@@ -70,7 +76,13 @@
 		<ClCompile Include="BugFix\GreatWorkTypeLookup\GreatWorkTypeLookup.cpp">
 			<Filter>BugFix</Filter>
 		</ClCompile>
+		<ClCompile Include="BugFix\GreatWorkModifierAttach\GreatWorkModifierAttach.cpp">
+			<Filter>BugFix</Filter>
+		</ClCompile>
 		<ClCompile Include="BugFix\GreatWorkPreserve\GreatWorkPreserve.cpp">
+			<Filter>BugFix</Filter>
+		</ClCompile>
+		<ClCompile Include="BugFix\InitUnitReturn\InitUnitReturn.cpp">
 			<Filter>BugFix</Filter>
 		</ClCompile>
 		<ClCompile Include="BugFix\GreatWorkYieldStack\GreatWorkYieldStack.cpp">
