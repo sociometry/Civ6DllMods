@@ -253,6 +253,32 @@ void ReleaseWeakReference(void* control) {
     }
 }
 
+// Expired objects must not consume registry capacity for the rest of the game.
+void PruneExpiredWeakRequirements() {
+    void* retired[kMaxWeakRequirements];
+    size_t retiredCount = 0;
+    AcquireSRWLockExclusive(&g_weakRequirementLock);
+    const size_t previousCount = g_weakRequirementCount;
+    size_t liveCount = 0;
+    for (size_t i = 0; i < previousCount; ++i) {
+        const WeakRequirementRef weak = g_weakRequirements[i];
+        auto* useCount = reinterpret_cast<volatile LONG*>(
+            static_cast<char*>(weak.control) + 8);
+        if (_InterlockedCompareExchange(useCount, 0, 0) == 0) {
+            retired[retiredCount++] = weak.control;
+        } else {
+            g_weakRequirements[liveCount++] = weak;
+        }
+    }
+    std::memset(g_weakRequirements + liveCount, 0,
+        (previousCount - liveCount) * sizeof(WeakRequirementRef));
+    g_weakRequirementCount = liveCount;
+    ReleaseSRWLockExclusive(&g_weakRequirementLock);
+
+    // A native destructor may reenter the plugin; never call it under the lock.
+    for (size_t i = 0; i < retiredCount; ++i) ReleaseWeakReference(retired[i]);
+}
+
 // A copied registry entry must own a weak reference too: OnUnload may clear
 // the registry while a refresh still holds its snapshot.
 struct WeakRequirementSnapshot {
@@ -325,6 +351,8 @@ bool TrackWeakRequirement(void* req) {
         }
         return false;
     }
+
+    PruneExpiredWeakRequirements();
 
     AcquireSRWLockExclusive(&g_weakRequirementLock);
     if (g_weakRegistryStopping) {

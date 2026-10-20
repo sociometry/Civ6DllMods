@@ -219,6 +219,32 @@ void ReleaseWeakReference(void* control) {
     }
 }
 
+// Expired objects must not consume registry capacity for the rest of the game.
+void PruneExpiredWeakRequirements() {
+    void* retired[kMaxWeakRequirements];
+    size_t retiredCount = 0;
+    AcquireSRWLockExclusive(&g_weakRequirementLock);
+    const size_t previousCount = g_weakRequirementCount;
+    size_t liveCount = 0;
+    for (size_t i = 0; i < previousCount; ++i) {
+        const WeakRequirementRef weak = g_weakRequirements[i];
+        auto* useCount = reinterpret_cast<volatile LONG*>(
+            static_cast<char*>(weak.control) + 8);
+        if (_InterlockedCompareExchange(useCount, 0, 0) == 0) {
+            retired[retiredCount++] = weak.control;
+        } else {
+            g_weakRequirements[liveCount++] = weak;
+        }
+    }
+    std::memset(g_weakRequirements + liveCount, 0,
+        (previousCount - liveCount) * sizeof(WeakRequirementRef));
+    g_weakRequirementCount = liveCount;
+    ReleaseSRWLockExclusive(&g_weakRequirementLock);
+
+    // A native destructor may reenter the plugin; never call it under the lock.
+    for (size_t i = 0; i < retiredCount; ++i) ReleaseWeakReference(retired[i]);
+}
+
 // A copied registry entry must own a weak reference too: OnUnload may clear
 // the registry while a refresh still holds its snapshot.
 struct WeakRequirementSnapshot {
@@ -292,6 +318,8 @@ bool TrackWeakRequirement(void* req, int routeIndex) {
         }
         return false;
     }
+
+    PruneExpiredWeakRequirements();
 
     AcquireSRWLockExclusive(&g_weakRequirementLock);
     if (g_weakRegistryStopping) {
@@ -371,7 +399,9 @@ int FindTrackedRouteIndex(void* req) {
     AcquireSRWLockShared(&g_weakRequirementLock);
     for (size_t i = 0; i < g_weakRequirementCount; ++i) {
         // TestPlot `this` is the managed object; tracking stores weak_this.object.
-        if (g_weakRequirements[i].object == req) {
+        if (g_weakRequirements[i].object == req
+            && _InterlockedCompareExchange(reinterpret_cast<volatile LONG*>(
+                static_cast<char*>(g_weakRequirements[i].control) + 8), 0, 0) != 0) {
             const int index = g_weakRequirements[i].routeIndex;
             ReleaseSRWLockShared(&g_weakRequirementLock);
             return index;
@@ -631,7 +661,9 @@ bool IsTrackedRouteRequirement(void* req) {
     }
     AcquireSRWLockShared(&g_weakRequirementLock);
     for (size_t i = 0; i < g_weakRequirementCount; ++i) {
-        if (g_weakRequirements[i].object == req) {
+        if (g_weakRequirements[i].object == req
+            && _InterlockedCompareExchange(reinterpret_cast<volatile LONG*>(
+                static_cast<char*>(g_weakRequirements[i].control) + 8), 0, 0) != 0) {
             ReleaseSRWLockShared(&g_weakRequirementLock);
             return true;
         }

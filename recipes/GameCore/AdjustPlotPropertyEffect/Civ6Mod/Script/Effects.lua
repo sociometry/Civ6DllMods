@@ -1,18 +1,22 @@
-
-
-Events.ImprovementAddedToMap = function(improvementType, x, y)
+local function PrintPlotProperty(x, y)
     local plot = Map.GetPlot(x, y)
-    local improvement = GameInfo.Improvements[improvementType]
-    if improvement.ImprovementType == "IMPROVEMENT_FARM" then
-        print('EXAMPLE_PROPERTY', plot:GetProperty("EXAMPLE_PROPERTY"))
+    if plot then
+        print("EXAMPLE_PROPERTY", plot:GetProperty("EXAMPLE_PROPERTY"))
     end
 end
 
-Events.ImprovementRemovedFromMap = function(improvementType, x, y)
-    local plot = Map.GetPlot(x, y)
+local function OnImprovementAddedToMap(x, y, improvementType)
     local improvement = GameInfo.Improvements[improvementType]
-    if improvement.ImprovementType == "IMPROVEMENT_FARM" then
-        print('EXAMPLE_PROPERTY', plot:GetProperty("EXAMPLE_PROPERTY"))
+    if improvement and improvement.ImprovementType == "IMPROVEMENT_FARM" then
+        PrintPlotProperty(x, y)
     end
 end
 
+local function OnImprovementRemovedFromMap(x, y)
+    -- This event provides coordinates and owner, but no removed improvement type.
+    -- Log all removals so farms already present in a loaded save are covered too.
+    PrintPlotProperty(x, y)
+end
+
+Events.ImprovementAddedToMap.Add(OnImprovementAddedToMap)
+Events.ImprovementRemovedFromMap.Add(OnImprovementRemovedFromMap)
