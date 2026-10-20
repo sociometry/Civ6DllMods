@@ -31,6 +31,9 @@ stub_out/
 *.Build.CppClean.log
 *.unsuccessfulbuild
 
+# rc.exe 在源目录留下的临时资源文件（编译中断/VS 持有句柄时会残留）
+RC[ab][0-9]*
+
 __pycache__/
 *.pyc
 *.pyo

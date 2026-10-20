@@ -1,0 +1,10 @@
+// 版本号只有这一处。Loader 扫描插件时读的就是它：
+//   · 读不到版本 -> 这个插件不加载
+//   · 多个 Mod 带同名 DLL -> 只加载版本最高的那一份
+// 改版本只改下面这一行。
+#pragma code_page(65001)
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,0
+BEGIN
+END

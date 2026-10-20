@@ -40,15 +40,16 @@
 
 ## 2. Mod 目录结构规范
 
-### 先记住这三条
+### 2.0 先记住这四条
 
-写插件前先确认这三件事，它们是最常见的失败原因：
+写插件前先确认这四件事，它们是最常见的失败原因：
 
 1. **插件 DLL 必须放进子目录**：`Plugins/Global/` 或 `Plugins/GameCore/`。直接放在 `Plugins/` 根目录下的 DLL 会被扫描器忽略，不会加载。
 2. **工程必须定义类别宏**：`CIV6_PLUGIN_GLOBAL` 或 `CIV6_PLUGIN_GAMECORE` 二选一。不定义则 `HookAPI.h` 直接 `#error` 拒绝编译。
-3. **钩子与补丁互斥**：同一个地址不可既 `InstallHook` 又 `Patch`，两个方向都会被拒绝。要改一个已挂钩的函数，请在 detour 里做（详见 §6.3）。
+3. **工程必须带版本资源**（`.rc` 里的 `VERSIONINFO`）。**没有文件版本的插件不会被加载**——见 §2.2。
+4. **钩子与补丁互斥**：同一个地址不可既 `InstallHook` 又 `Patch`，两个方向都会被拒绝。要改一个已挂钩的函数，请在 detour 里做（详见 §6.3）。
 
-### 目录模板
+### 2.1 目录模板
 
 每个 Mod 的物理目录必须按规范组织：
 
@@ -78,7 +79,78 @@ MyAwesomeMod/
 > 只有主菜单界面、且不需要 C++ 逻辑的 Mod，可以**完全不编译 DLL**——只保留薄壳 + runtime 加上
 > `UI/FrontEnd/` 下的一对 `FrontEndUI_*.xml` / `.lua`（见 §7）。
 
-### Config.sql 模板（引导配置）
+### 2.2 版本资源（强制要求）
+
+**插件 DLL 必须带 `VERSIONINFO` 文件版本，否则 Loader 不会加载它。**
+
+这条不是建议，是加载前的门禁：扫描时读不到版本的 DLL 直接被拒绝，日志里留一行
+`Rejected plugin (no VERSIONINFO file version resource): <路径>`。
+
+#### 怎么加
+
+在插件工程里加一个 `.rc` 文件（下面的内容可以直接抄），再把 `.vcxproj` 里加上它：
+
+```xml
+<ItemGroup>
+  <ResourceCompile Include="Version.rc" />
+</ItemGroup>
+```
+
+```rc
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,0
+BEGIN
+END
+```
+
+就这三行。**整个文件只有一个版本号，改版本只改 `FILEVERSION` 那一行。**
+
+不需要 `StringFileInfo`、`VarFileInfo`、`ProductVersion`、`CompanyName` 之类的字段——
+Loader 只读 `VS_FIXEDFILEINFO` 里的文件版本，其余一概不看。
+
+> 唯一的代价：DLL 属性页「详细信息」里看不到版本字符串。如果你需要那个界面，
+> 可以额外保留 `StringFileInfo` 块，但**它不参与加载判断**，加不加都不影响 Loader。
+
+#### Loader 怎么用它
+
+**① 没有版本 → 不加载**（上面说的门禁）。
+
+**② 同名插件只加载一份，留版本最高的。**
+
+多个 Mod 各带一份同类插件时很常见（比如都基于同一个基础插件改的）。Loader 按
+**文件名（大小写不敏感）** 分组，组内只留**文件版本最高**的那份：
+
+```
+ModA/Plugins/GameCore/Foo.dll   v1.0.0.0   ← 淘汰
+ModB/Plugins/GameCore/Foo.dll   v1.2.0.0   ← 加载
+ModC/Plugins/GameCore/Foo.dll   v1.1.0.0   ← 淘汰
+```
+
+日志里能看到裁决结果：
+
+```
+Duplicate plugin basename: kept <ModB 的路径> (v1.2.0.0), dropped <ModA 的路径> (v1.0.0.0, lower version)
+```
+
+**版本相同时**按路径字典序裁决（大小写不敏感），保证同一台机器每次启动结果一致：
+
+```
+Duplicate plugin basename: kept ... (v1.0.0.0), dropped ... (v1.0.0.0, same version -> lexicographic tie-break)
+```
+
+#### 几条要注意的
+
+- **只有已启用 Mod 里的插件参与竞争**。禁用的 Mod 连候选都算不上；
+- **`Global` 与 `GameCore` 各自独立分组**。`Plugins/Global/Foo.dll` 和
+  `Plugins/GameCore/Foo.dll` 是两个不同的东西，各留各的；
+- **不同文件名互不影响**。`Foo.dll` 和 `FooEx.dll` 是两组；
+- **版本号是 `a.b.c.d` 四段比较**，`1.10.0.0 > 1.9.0.0`（按数值，不是按字符串）；
+- **`0.0.0.0` 等同于没有版本**，会被拒绝。想参与选举就填一个非零版本。
+
+> 如果你的插件是**独占**的（不希望被别的 Mod 带的高版本顶掉），把版本号抬到足够高，
+> 或者干脆用一个别人不会用的文件名。
+
+### 2.3 Config.sql 模板（引导配置）
 
 ```sql
 UPDATE GameCores
@@ -172,6 +244,9 @@ extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
 - **构建平台**：`x64`，配置建议使用 `Release`。
 - **运行库**：推荐使用静态链接 C/C++ 运行时库（`Multi-threaded /MT`），避免目标机器缺少 VC 运行库 DLL。
 - **头文件依赖**：工程中只需包含 `HookAPI.h`（自包含，不依赖其它头文件）。
+- **版本资源（必需）**：工程里要有一个 `Version.rc`，并在 `.vcxproj` 中加
+  `<ResourceCompile Include="Version.rc" />`。**没有 `VERSIONINFO` 文件版本的 DLL 不会被加载**，
+  同名插件之间也按这个版本号择优。模板与规则见 §2.2。
 - **强制预处理宏定义（重要！）**：
   在工程属性「C/C++ -> 预处理器 -> 预处理器定义」中，**必须**显式声明以下两个宏之一（二选一）：
   - Global 插件添加：`CIV6_PLUGIN_GLOBAL`
@@ -1111,7 +1186,27 @@ UiInject: context 已加载 (FrontEndUI_MyMod)
 **A：不会。** Loader 的竞选机制会自动比对所有已启用 Mod 中的 runtime，**始终选择版本最高的 runtime.dll 进行加载**。因此较新发布的 Mod 可以无缝带动老 Mod 享用更新的 Loader 功能与修复。
 
 ### Q：我的插件放到 `Binaries/Win64/Plugins/` 下为什么没有加载？
-**A：必须放入子目录！** Loader 严格只扫描 `Plugins/Global/*.dll` 和 `Plugins/GameCore/*.dll`。请检查你的插件是否直接散落在了 `Plugins/` 根目录下。
+**A：先查两个门禁。**
+1. **目录**：Loader 严格只扫描 `Plugins/Global/*.dll` 和 `Plugins/GameCore/*.dll`。直接散落在 `Plugins/` 根目录下的 DLL 不认。
+2. **版本资源**：DLL 必须带 `VERSIONINFO` 文件版本（见 §2.2）。没有的话日志里会有
+   `Rejected plugin (no VERSIONINFO file version resource)`。
+
+另外确认 Mod 本身已启用——Loader 只从 `Mods.sqlite` 记录的已启用 Mod 里找插件。
+
+### Q：我的插件明明存在，但日志说被别的路径顶掉了？
+**A：同名插件按版本选举，只留一份。** 多个 Mod 带了同名 DLL 时，Loader 只加载**文件版本最高**的那份，
+其余的被淘汰。日志形如：
+
+```
+Duplicate plugin basename: kept <胜出路径> (v1.2.0.0), dropped <你的路径> (v1.0.0.0, lower version)
+```
+
+版本相同时按路径字典序裁决（`same version -> lexicographic tie-break`）。
+把版本号提上去，或者换一个不会被撞到的文件名。详见 §2.2。
+
+### Q：怎么让"基于同一份基础插件改的多个 Mod"共存？
+**A：给同一个文件名填不同版本号即可。** Loader 会挑最高的那份加载，其余自动让位。
+这也是推荐做法——只有一份映像在跑，不会出现两个 Mod 各挂一遍钩子互相干扰。
 
 ### Q：编译报错 `#error "CIV6: 必须声明插件类别"` 怎么解决？
 **A：必须在工程预处理器中定义类别宏。** 在工程属性「C/C++ -> 预处理器 -> 预处理器定义」中添加 `CIV6_PLUGIN_GLOBAL`（全局插件）或 `CIV6_PLUGIN_GAMECORE`（对局插件）。

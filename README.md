@@ -58,6 +58,19 @@
 
 工程通用要求：`x64`、C++20、`/utf-8`（仓库约定源码为 UTF-8 无 BOM）；引用了 asmjit 的工程还需 `/MT` 与 `ASMJIT_STATIC`。
 
+> **必须带版本资源。** 每个插件工程放一个 `Version.rc`，内容就三行（本仓库各 recipe 里已有，照抄即可）：
+>
+> ```rc
+> VS_VERSION_INFO VERSIONINFO
+>  FILEVERSION 1,0,0,0
+> BEGIN
+> END
+> ```
+>
+> 并在 `.vcxproj` 里加 `<ResourceCompile Include="Version.rc" />`。
+> 改版本只改 `FILEVERSION` 这一行。Loader 扫描时**读不到版本的 DLL 一律不加载**；
+> 多个 Mod 带同名插件时只加载**版本最高**的那份。详见 [插件开发指南 §2.2](docs/PLUGIN_GUIDE.md)。
+
 `HookAPI.h` 需要与运行时版本配套 —— 从 Civ6DllLoader 发行包复制进各 `recipes/*/*/dll/`。
 
 ---
