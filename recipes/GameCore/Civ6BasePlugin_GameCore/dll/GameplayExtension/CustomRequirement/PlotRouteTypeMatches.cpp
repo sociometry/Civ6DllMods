@@ -42,6 +42,19 @@ const SymbolSpec kSymArgProcessorVftable{"", 0xAA39E0};
 
 HookAPI* g_api = nullptr;
 
+// 热路径日志开关：Loader 的 config.ini [Loader] ENABLE_DEBUG_LOG（默认 false）。
+// 本文件里"每次路线刷新 / 每次 Create / 每次 SetRouteType"这类会反复触发的日志
+// 都套这个判断——实测一个路线刷新回调就能刷掉几百行，常开会把加载失败、
+// hook 安装这类真正要看的信息淹掉。初始化阶段的少量日志（装 hook、注册结果）
+// 不受它影响，始终输出。
+//
+// 为什么每次都查 api 而不是缓存一个 bool：这个开关"改完重启生效"，
+// 进程内不会变，但缓存会多一个"什么时候缓存"的时序问题（OnLoad 之前
+// 还没拿到 api）。直接问一次是一行函数调用，比缓存更省心。
+inline bool DebugLogOn() {
+    return g_api && g_api->IsDebugLogEnabled && g_api->IsDebugLogEnabled();
+}
+
 using GetTypesFn = void*(__cdecl*)();
 using OpNewFn = void*(__cdecl*)(size_t);
 using MakeHashFn = uint32_t(__cdecl*)(const char*);
@@ -311,7 +324,7 @@ bool TrackWeakRequirement(void* req, int routeIndex) {
         *reinterpret_cast<void**>(static_cast<char*>(req) + 16),
         routeIndex};
     if (!weak.object || !weak.control) {
-        if (g_api) {
+        if (DebugLogOn()) {
             g_api->Log(
                 "PlotRouteTypeMatches: weak_this unavailable req=%p object=%p control=%p",
                 req, weak.object, weak.control);
@@ -346,7 +359,7 @@ bool TrackWeakRequirement(void* req, int routeIndex) {
     g_weakRequirements[g_weakRequirementCount++] = weak;
     const size_t count = g_weakRequirementCount;
     ReleaseSRWLockExclusive(&g_weakRequirementLock);
-    if (g_api) {
+    if (DebugLogOn()) {
         g_api->Log(
             "PlotRouteTypeMatches: weak tracked req=%p control=%p routeIndex=%d count=%llu",
             weak.object,
@@ -438,7 +451,7 @@ void RefreshTrackedRouteRequirements() {
     WeakRequirementSnapshot snapshot;
     const size_t count = snapshot.count;
 
-    if (g_api) {
+    if (DebugLogOn()) {
         g_api->Log(
             "PlotRouteTypeMatches: route refresh tracked=%llu",
             static_cast<unsigned long long>(count));
@@ -451,7 +464,7 @@ void RefreshTrackedRouteRequirements() {
         if (*reinterpret_cast<uint8_t*>(static_cast<char*>(req) + kOffActive)) {
             const int state = InvokeRouteRequirementTest(req);
             InvokeSetState(req, state);
-            if (g_api) {
+            if (DebugLogOn()) {
                 g_api->Log(
                     "PlotRouteTypeMatches: route refresh req=%p state=%d routeIndex=%d",
                     req,
@@ -469,7 +482,7 @@ void __fastcall Hook_SetRouteTypeOnPlot(
     if (g_origSetRouteTypeOnPlot) {
         g_origSetRouteTypeOnPlot(builder, plot, routeType, player);
     }
-    if (g_api) {
+    if (DebugLogOn()) {
         g_api->Log(
             "PlotRouteTypeMatches: SetRouteType plot=%p route=%u player=%u — refresh",
             plot,
@@ -732,7 +745,7 @@ void* __fastcall Hook_RouteCreate(void* self, void* outSharedPtr, const void* pa
     const int resolvedIndex = params
         ? ResolveRouteTypeIndex(reinterpret_cast<int64_t*>(const_cast<void*>(params)))
         : -1;
-    if (g_api) {
+    if (DebugLogOn()) {
         g_api->Log(
             "PlotRouteTypeMatches: route Create begin factory=%p out=%p params=%p pendingIndex=%d",
             self,
@@ -759,7 +772,7 @@ void* __fastcall Hook_RouteCreate(void* self, void* outSharedPtr, const void* pa
                 const int state =
                     reinterpret_cast<TestFn>(vt[22])(requirement, nullptr, nullptr);
                 g_setState(requirement, state, 1);
-                if (g_api) {
+                if (DebugLogOn()) {
                     g_api->Log(
                         "PlotRouteTypeMatches: route Create refresh SetState req=%p state=%d",
                         requirement,
@@ -772,7 +785,7 @@ void* __fastcall Hook_RouteCreate(void* self, void* outSharedPtr, const void* pa
             "PlotRouteTypeMatches: route Create failed to parse RouteType req=%p",
             requirement);
     }
-    if (g_api) {
+    if (DebugLogOn()) {
         g_api->Log(
             "PlotRouteTypeMatches: route Create done req=%p parsed=%u tracked=%u index=%d",
             requirement,

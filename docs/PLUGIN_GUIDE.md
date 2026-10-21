@@ -250,7 +250,7 @@ extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
 > 1. `HookAPI.h` 根据该宏在编译期自动生成 `Civ6PluginKind` 导出函数（返回类别 1 或 2，以及 API 版本）。
 > 2. Loader 在调用 `OnLoad` 之前，会读取该导出并核对插件所处的物理目录（`Global` 或 `GameCore`）。若宏声明与所在目录不一致，Loader 会在执行任何插件代码前**直接拒载**。
 > 3. 若未定义宏，包含 `HookAPI.h` 将直接触发 `#error` 阻止编译。
-> 4. Global 插件下，GameCore 专属接口（`GetPlayer`、`RegisterGameEvent`、`TriggerGameEvent`、`RegisterGameCoreScriptForGamePlay`、`RegisterGameCoreScriptForUI`、`PushLuaMethods`、`RegisterPushMethodsTarget`）**不会生成对应成员**，调用时报
+> 4. Global 插件下，GameCore 专属接口（`GetPlayer`、`RegisterGameEvent`、`TriggerGameEvent`、`RegisterGameCoreScriptForGamePlay`、`RegisterGameCoreScriptForUI`、`PushLuaMethods`）**不会生成对应成员**，调用时报
 >    `error C2039: "GetPlayer": 不是 "HookAPI" 的成员`，防止跨生命周期非法调用。
 >
 > **版本不匹配时的表现**：`HookContext_IsCompatible(ctx)` 返回 0。它比较 `structSize` 与 `apiVersion` —— 若插件与 Loader 不是同一次构建（改了头文件却只重编了一边），
@@ -603,7 +603,7 @@ if (!fn) {
 
 ## 6. HookAPI 核心功能与使用示例
 
-本章按功能分组：§6.1 是所有插件都需要的初始化模板；§6.2–§6.3 是最常用的两种改游戏逻辑的手段（挂钩子与改字节）；§6.4–§6.8 是 Lua 与工具接口；**§6.9 是进阶内容**——只有当普通 C++ detour 表达不了你的需求时，才需要读它。
+本章按功能分组：§6.1 是所有插件都需要的初始化模板；§6.2–§6.3 是最常用的两种改游戏逻辑的手段（挂钩子与改字节）；§6.4–§6.8 是 Lua 与工具接口；**§6.9 是日志分级（热路径日志必须上闸）**；**§6.10 是进阶内容**——只有当普通 C++ detour 表达不了你的需求时，才需要读它。
 
 ### 6.1 基础入口与兼容性防御
 
@@ -711,9 +711,18 @@ static const LuaMethodInfo s_methods[] = {
 };
 
 // 在 OnLoad 中挂载：
-api->PushLuaMethods("GameCore::Lua::IQuestsManager", s_methods, 1);
+api->PushLuaMethods("GameCore::Lua::IQuestsManager::PushMethods", kHookApiPushNoManager, s_methods, 1);
 ```
 之后在 Lua 脚本中即可直接调用：`Players[0]:GetQuestsManager():CustomMethod()`。
+
+几点要说清楚：
+
+- **第一个参数是完整符号名**，原样交给符号解析，Loader 不做任何拼接或推导——
+  目标函数叫什么就写什么；
+- **`sigType` 必须与该 PushMethods 的实际签名一致**：
+  `kHookApiPushNoManager` = `PushMethods(lua_State*, int)`；
+  `kHookApiPushWithManager` = `PushMethods(Manager*, lua_State*, int)`。
+  填错不会报错，但参数会整体错位——用 `tools/rva_to_symbol.exe` 解出地址后反汇编确认第一个参数。
 
 ### 6.6 注册脚本全局环境（三个入口，按作用域选）
 
@@ -828,20 +837,80 @@ end)
   ```cpp
   void* pPlayer = api->GetPlayer(0); // 获取 0 号玩家指针（GameCore 专属）
   ```
+- **开发者调试开关查询**：`IsDebugLogEnabled()` 见 §6.9。
 
-### 6.9 用 asmjit 生成 detour（进阶）
+### 6.9 日志分级：用 `IsDebugLogEnabled` 给热路径日志上闸
+
+**这是硬要求，不是建议。** Loader 与所有插件共用同一个日志文件
+（`Civ6DllLoader_Loader.log`），热路径上的日志会把它冲垮。
+
+实测数据：一份 1884 行的日志里，有一个路线刷新回调独占 653 行、一个每
+Lua state 注册一次的模块占 426 行，两者合计 **57%**。当时的情况是加载失败、
+hook 装不上这类真正要看的行全被埋在中间。
+
+#### 怎么判断一条日志该不该上闸
+
+| 日志性质 | 要不要闸 | 例子 |
+|---|---|---|
+| 初始化一次、失败才打 | ❌ 不用闸，永远输出 | `hooked X at %p`、`registration FAILED`、`symbol missing` |
+| 每次 hook 回调都打 | ✅ 必须闸 | 每个 detour 体的入口/出口日志 |
+| 每帧 / 每次刷新 / 每次创建都打 | ✅ 必须闸 | 路线刷新、需求求值、工厂 Create |
+| 玩家看得见的状态变化 | ✅ 必须闸 | 改了什么值、切了哪个模式 |
+
+一句话：**频率与"每次游戏交互"相关的日志都必须上闸；只有"装好一次就没声音"的
+日志可以裸打。**
+
+#### 写法
+
+```cpp
+HookAPI* g_api = nullptr;
+
+// 热路径日志开关。每次直接问 api，不要自己缓存 bool ——
+// 缓存会多一个"什么时候缓存"的时序问题（OnLoad 之前还没拿到 api）。
+inline bool DebugLogOn() {
+    return g_api && g_api->IsDebugLogEnabled && g_api->IsDebugLogEnabled();
+}
+
+// 热路径：每次回调都触发
+void __fastcall Hook_Something(void* self) {
+    if (DebugLogOn()) {
+        g_api->Log("MyFeature: Thing called self=%p", self);
+    }
+    ...
+}
+
+// 初始化路径：装一次，不用闸
+g_api->Log("MyFeature: Detour_Something installed at %p", g_detour);
+```
+
+#### 开关语义
+
+- 值来自 `<exe目录>\Civ6DllLoader\config.ini` 的 `[Loader] ENABLE_DEBUG_LOG`；
+- **默认 false**，进程内恒定（改 ini 需要重启游戏才生效）；
+- **只读、只能手改**：没有 Writer、没有 UI、没有 Lua 接口，插件也不该去改它；
+- 键缺失 / 值非法一律读作 `false`（fail-closed）。
+
+#### 别踩的坑
+
+- **不要用 `if (g_api)` 代替 `if (DebugLogOn())`**：前者只防空指针，日志照样刷屏。
+- **不要把初始化日志也塞进去**：那些行本来就只有一条，上闸反而让"为什么没打出来"
+  变成新的排查方向。
+- **热路径里别做字符串格式化**：`g_api->Log` 是 varargs，参数在调用前就求值了。
+  拼字符串要放进闸里，否则闸没开也付了格式化的代价。
+
+### 6.10 用 asmjit 生成 detour（进阶）
 
 有些 hook 不能用普通 C++ 函数当 detour：需要在进入原函数前改写寄存器、按条件跳回原函数中间、或者把一段极短的逻辑塞进目标函数的指令流里。这时可以用 asmjit 在运行期汇编出这段机器码。
 
 > **本章代码按 asmjit 1.17 写**（即本仓库 vendored 的版本，`ASMJIT_LIBRARY_VERSION` = 1.17.0）。
 > 1.20+ 改了若干 API 名字（`kErrorOk`→`Error::kOk`、`codeSize()`→`code_size()`、
-> `errorAsString()`→`error_as_string()`），直接照抄会编译不过 —— 对照表见 §6.9.9。
+> `errorAsString()`→`error_as_string()`），直接照抄会编译不过 —— 对照表见 §6.10.9。
 
 **这不是必需手段。** 只要普通 C++ detour 能满足需求，就用普通 detour——少一层机器码就少一类崩溃。
 
 ---
 
-#### 6.9.1 硬约束一：detour 必须落在插件自己的模块内
+#### 6.10.1 硬约束一：detour 必须落在插件自己的模块内
 
 `InstallHook` 在安装前会对 **detour 地址**做归属校验：用 `GetModuleHandleExW(FROM_ADDRESS)` 反查它属于哪个已加载模块，再确认该模块是本进程登记过的插件。
 
@@ -856,11 +925,11 @@ end)
 
 **asmjit 的 `rt.add(&fn, &code)` 返回的 `fn` 就在 JIT 页上，不能直接当 detour 用。** 正确做法是把它当作"编码器"：拿到字节后 `memcpy` 进插件模块内的存储，再 `rt.release(fn)`。
 
-> 校验只针对 **detour 参数**。如果你不调 `InstallHook`，而是用 `Patch` 往游戏指令里写一条跳转、让控制流自己跳到 JIT 页，Loader 不检查跳转目标——但这属于另一条路线，见 §6.9.7。
+> 校验只针对 **detour 参数**。如果你不调 `InstallHook`，而是用 `Patch` 往游戏指令里写一条跳转、让控制流自己跳到 JIT 页，Loader 不检查跳转目标——但这属于另一条路线，见 §6.10.7。
 
 ---
 
-#### 6.9.2 硬约束二：写入页和执行页要分开（W^X）
+#### 6.10.2 硬约束二：写入页和执行页要分开（W^X）
 
 需要一块"能被写、又能被执行"的内存。**不要**做成永久 RWX（`PAGE_EXECUTE_READWRITE`，或 `/SECTION:.uhook,RWE`）：
 
@@ -898,7 +967,7 @@ FlushInstructionCache(GetCurrentProcess(), g_detourCode, sizeof(g_detourCode));
 
 ---
 
-#### 6.9.3 硬约束三：emit 的错误必须逐条检查
+#### 6.10.3 硬约束三：emit 的错误必须逐条检查
 
 这是最容易踩、且**完全没有报错**的坑。
 
@@ -937,11 +1006,11 @@ asmjit 的每个 emit 调用都会返回 `Error`，出错时那一条指令**不
 
 ---
 
-#### 6.9.4 完整骨架
+#### 6.10.4 完整骨架
 
 ```cpp
 // 本仓库 vendored 的是 asmjit 1.17：用 asmjit/x86.h（它内部已包含 core.h）。
-// 下面代码按 1.17 的 API 写；1.20+ 的差异见 §6.9.9 的对照表。
+// 下面代码按 1.17 的 API 写；1.20+ 的差异见 §6.10.9 的对照表。
 #include "asmjit/x86.h"
 
 // 进程内共用一个 JitRuntime 即可；它只负责"给 CodeHolder 分配一块临时可执行页"。
@@ -1000,7 +1069,7 @@ InstallAsmDetour(api, target, &g_orig, code);
 
 ---
 
-#### 6.9.5 多条 detour 时：一个槽一页
+#### 6.10.5 多条 detour 时：一个槽一页
 
 `VirtualProtect` 按内存页（4 KB）生效。如果多个 detour 挤在同一页：
 
@@ -1026,7 +1095,7 @@ inline unsigned char* const g_slots[4] = { g_slot0, g_slot1, g_slot2, g_slot3 };
 
 ---
 
-#### 6.9.6 生成代码里不要出现"随基址变化"的引用
+#### 6.10.6 生成代码里不要出现"随基址变化"的引用
 
 `rt.add` 会把代码重定位到 JIT 页的地址，然后你把字节拷到别的地方。因此：
 
@@ -1045,7 +1114,7 @@ ASMJIT_EMIT(a.call(asmjit::x86::rax));
 
 ---
 
-#### 6.9.7 什么时候根本不需要 detour
+#### 6.10.7 什么时候根本不需要 detour
 
 如果需求只是"改掉某条指令里的一个常量"或"把一处条件跳转 nop 掉"，用 `Patch` 直接改字节即可，不需要 asmjit，也不需要自定义节：
 
@@ -1066,7 +1135,7 @@ asmjit 在这种场景下唯一的价值，是让你不用手写那串十六进�
 
 ---
 
-#### 6.9.8 工程配置
+#### 6.10.8 工程配置
 
 | 项 | 值 |
 |----|----|
@@ -1082,7 +1151,7 @@ asmjit 源码本身是 zlib 许可，直接 vendored 一份到插件工程里最
 
 ---
 
-#### 6.9.9 asmjit 版本差异
+#### 6.10.9 asmjit 版本差异
 
 不同版本之间 API 命名变过，跨版本抄代码会编译失败：
 
@@ -1100,7 +1169,7 @@ asmjit 源码本身是 zlib 许可，直接 vendored 一份到插件工程里最
 
 ---
 
-#### 6.9.10 排查表
+#### 6.10.10 排查表
 
 | 现象 | 原因 |
 |------|------|
@@ -1195,6 +1264,7 @@ UiInject: context 已加载 (FrontEndUI_MyMod)
 | 日志情况 | 问题在哪 |
 |---|---|
 | 没有 `发现 N 个 Mod UI` | Mod 没被 `Mods.sqlite` 判为启用（§7.4），或扫描阶段整体出错（日志里有原因） |
+| 自己的诊断日志一条都没有 | 是不是套了 `DebugLogOn()`？那是按 `ENABLE_DEBUG_LOG` 上闸的，默认关（§6.9） |
 | 有 `发现 N 个`，但没有你自己那个文件名 | 文件名前缀/扩展名不合规，或放到了未启用的 Mod 目录里——对照 §7.1 的表 |
 | 有 `context 已加载 (你的文件名)`，界面却不显示 | 问题在界面自己（XML 布局或 Lua 没显示它），与 Loader 无关 |
 
@@ -1426,8 +1496,7 @@ const int rc = api->LuaCPcall(L, &MyCallback, nullptr);
 | `RegisterGameCoreScriptForGamePlay` ✱ | `void(ScriptGlobalsFn)` | 注册 GameCore gameplay Lua 构建完成时的回调。 |
 | `RegisterGameCoreScriptForUI` ✱ | `void(ScriptGlobalsFn)` | 同上，但用于 GameCore 的 UI 脚本 Lua。 |
 | `RegisterGlobalScript` | `void(ScriptGlobalsFn)` | 注册到 exe 的引擎主 Lua state（进程级，换局不失效）。Global 与 GameCore 插件都能用，见 §6.6。 |
-| `PushLuaMethods` ✱ | `HookApiPushMethodsResult(const char* name, const LuaMethodInfo*, uint32_t count)` | 给已有 C++ Lua 对象挂方法，见 §6.5。 |
-| `RegisterPushMethodsTarget` ✱ | `int(const char* name, int sigType, const char* pushMethodsSymbol)` | 登记新的 PushMethods 目标对象，见下。 |
+| `PushLuaMethods` ✱ | `HookApiPushMethodsResult(const char* pushMethodsSymbol, int sigType, const LuaMethodInfo*, uint32_t count)` | 给已有 C++ Lua 对象挂方法，见 §6.5。 |
 
 > 前三项只操作 Lua 栈，**不限插件类别**；后四项涉及 GameCore 的 Lua 对象与环境，因此带类别门禁。
 
@@ -1451,11 +1520,9 @@ api->RegisterGameCoreScriptForUI(&InitMyMod);          // GameCore UI Lua 里同
 ```
 
 ```cpp
-// 给一个 Loader 尚未内置登记的 Lua 对象加方法：
-api->RegisterPushMethodsTarget("GameCore::Lua::IMyManager", kHookApiPushNoManager, nullptr);
+// 给一个引擎已有的 Lua 对象加方法（第一个参数是完整符号名，不自动拼接）：
+api->PushLuaMethods("GameCore::Lua::IMyManager::PushMethods", kHookApiPushNoManager, s_methods, count);
 // sigType：kHookApiPushNoManager（无 manager 前缀）/ kHookApiPushWithManager（带 manager 签名）
-// 第三个参数为 nullptr 时，Loader 用 name + "::PushMethods" 作为解析符号。
-api->PushLuaMethods("GameCore::Lua::IMyManager", s_methods, count);
 ```
 
 > `LuaMethodInfo` 必须是 **C 布局**且三个字段都是 `const char*` 字面量，**不要**跨 DLL 传 `std::string` / `std::vector`。
