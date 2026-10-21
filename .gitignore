@@ -38,6 +38,9 @@ __pycache__/
 *.pyc
 *.pyo
 
+# package_release.py 的输出目录（发布包是构建产物，不入版本管理）
+dist/
+
 # IDE / agent 缓存
 .serena/
 
