@@ -48,7 +48,6 @@ extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
 			&HookAPI::RegisterGameCoreScriptForGamePlay,
 			&HookAPI::RegisterGameCoreScriptForUI,
 			&HookAPI::PushLuaMethods,
-			&HookAPI::RegisterPushMethodsTarget,
 			&HookAPI::LuaNewGlobalTable,
 			&HookAPI::LuaCreateTable,
 			&HookAPI::LuaPushCFunctionField,

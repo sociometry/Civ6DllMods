@@ -104,13 +104,11 @@ GetModifiersOwnedBy(system, outVec, sp)  -> 自有索引列表
 
 ## 挂载方式
 
-`unit:AttachModifierByID` 是**实例方法**，通过 `RegisterPushMethodsTarget` + `PushLuaMethods`
-注入到 `GameCore::Lua::IUnit` 的 PushMethods 里：
+`unit:AttachModifierByID` 是**实例方法**，通过 `PushLuaMethods` 注入到
+`GameCore::Lua::IUnit` 的 PushMethods 里：
 
 ```cpp
-RegisterPushMethodsTarget("GameCore::Lua::IUnit", kHookApiPushNoManager,
-    "GameCore::Lua::IUnit::PushMethods");
-PushLuaMethods("GameCore::Lua::IUnit", &s_attachModifier, 1);
+PushLuaMethods("GameCore::Lua::IUnit::PushMethods", kHookApiPushNoManager, &s_attachModifier, 1);
 ```
 
 ## 来源

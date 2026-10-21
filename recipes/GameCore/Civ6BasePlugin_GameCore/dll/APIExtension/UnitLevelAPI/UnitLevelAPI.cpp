@@ -76,14 +76,12 @@ void InjectExperienceMethod() {
 	static LuaMethodInfo s_methods[] = {
 		{ &lSetLevel, "lSetLevel", "SetLevel" },
 	};
-	const int rc = g_api->RegisterPushMethodsTarget("GameCore::Lua::IUnitExperience",
-		kHookApiPushNoManager, "GameCore::Lua::IUnitExperience::PushMethods");
 	const HookApiPushMethodsResult pushed = g_api->PushLuaMethods(
-		"GameCore::Lua::IUnitExperience", s_methods,
+		"GameCore::Lua::IUnitExperience::PushMethods", kHookApiPushNoManager, s_methods,
 		static_cast<uint32_t>(sizeof(s_methods) / sizeof(s_methods[0])));
-	g_api->Log("[UnitLevelAPI] experience-method inject: reg=%d pushed=%d "
+	g_api->Log("[UnitLevelAPI] experience-method inject: pushed=%d "
 		"(unit:GetExperience():SetLevel(n))",
-		rc, static_cast<int>(pushed));
+		static_cast<int>(pushed));
 }
 
 } // namespace

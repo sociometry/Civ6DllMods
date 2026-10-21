@@ -10,8 +10,8 @@ struct HookAPI;
 //
 //   unit:AttachModifierByID(modifierID) -> number
 //       挂一层字符串 ID 的修饰符并激活；成功返回该层数字索引，失败返回 -1。
-//       实例方法注入到 GameCore::Lua::IUnit（RegisterPushMethodsTarget +
-//       PushLuaMethods 标准路径），用法与 CE 版一致。
+//       实例方法注入到 GameCore::Lua::IUnit（PushLuaMethods 标准路径），
+//       用法与 CE 版一致。
 //
 //   ModifierManager.DetachModifierByID(owner, modifierID[, count]) -> number
 //       摘除该 owner 上 ID 匹配的修饰符，count 缺省为 1；返回实际摘掉的层数。

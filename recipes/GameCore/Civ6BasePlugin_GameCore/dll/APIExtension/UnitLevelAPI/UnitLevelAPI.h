@@ -31,8 +31,8 @@ struct HookAPI;
 //   hks_pushnamedcclosure(luaFn, "lXxx")     // 内部名
 //   hksi_lua_setfield(L, idx, "Xxx")         // 暴露名
 //
-// 框架侧对应 HookAPI 的 RegisterPushMethodsTarget + PushLuaMethods，
-// 原 PushMethods 由 Loader 自动调用，因此只需声明目标表与追加的方法。
+// 框架侧对应 HookAPI 的 PushLuaMethods：需给出完整的 PushMethods 符号名，
+// 原 PushMethods 由 Loader 自动调用，因此只需给出符号、签名与追加的方法。
 //
 // ---------------------------------------------------------------------------
 // 依赖面压到最小

@@ -24,9 +24,7 @@ unit:GetExperience():SetLevel(3)   --> boolean
 ## 做法：照搬引擎自己的挂载方式
 
 ```cpp
-RegisterPushMethodsTarget("GameCore::Lua::IUnitExperience", kHookApiPushNoManager,
-    "GameCore::Lua::IUnitExperience::PushMethods");
-PushLuaMethods("GameCore::Lua::IUnitExperience", &s_setLevel, 1);
+PushLuaMethods("GameCore::Lua::IUnitExperience::PushMethods", kHookApiPushNoManager, &s_setLevel, 1);
 ```
 
 ## 只包一层，不改语义

@@ -564,17 +564,15 @@ void RegisterLuaGlobals(void* L) {
 	g_api->LuaPop(L, 1);
 }
 
-// 把 Attach 以实例方法注入进 IUnit 的方法表（RegisterPushMethodsTarget + PushLuaMethods）。
+// 把 Attach 以实例方法注入进 IUnit 的方法表（PushLuaMethods）。
 void InjectUnitMethod() {
 	static LuaMethodInfo s_unitAttach = {
 		&lAttachModifierByID, "lAttachModifierByID", "AttachModifierByID"
 	};
-	const int rc = g_api->RegisterPushMethodsTarget("GameCore::Lua::IUnit",
-		kHookApiPushNoManager, "GameCore::Lua::IUnit::PushMethods");
 	const HookApiPushMethodsResult pushed =
-		g_api->PushLuaMethods("GameCore::Lua::IUnit", &s_unitAttach, 1);
-	g_api->Log("[ModifierManager] unit-method inject: reg=%d pushed=%d (unit:AttachModifierByID(id))",
-		rc, static_cast<int>(pushed));
+		g_api->PushLuaMethods("GameCore::Lua::IUnit::PushMethods", kHookApiPushNoManager, &s_unitAttach, 1);
+	g_api->Log("[ModifierManager] unit-method inject: pushed=%d (unit:AttachModifierByID(id))",
+		static_cast<int>(pushed));
 }
 
 } // namespace
