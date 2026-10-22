@@ -1,5 +1,7 @@
 # GreatWorkOptimizer
 
+> 中文 | [English](README.en.md)
+
 > 分类：**BugFix** · 返回 [工程总览](../../../README.md)
 
 缓解大后期 AI 计算巨作分配时的卡顿。

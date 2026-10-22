@@ -1,5 +1,7 @@
 # Civ6DllLoader-Examples
 
+> 中文 | [English](README.en.md)
+
 [Civ6DllLoader](https://github.com/sociometry/Civ6DllLoader) 的 DLL mod 写法示范集合。
 
 本仓库**不提供**可直接使用的完整 mod，只提供可参考、可复制的插件工程与文档。自行组装见 [插件开发指南](docs/PLUGIN_GUIDE.md)。
@@ -90,24 +92,6 @@ tools\rva_to_symbol.exe -gamecore 0x3A5A60 --demangled   # 只取一栏
 **输入是 RVA，不是绝对地址** —— IDA 里拿到的是 VA，要先减去映像基址。三个映像的 RVA 空间互不相通，所以必须显式给选择符。
 
 拿到符号名后写成 `HookName("GameCore::…")`，跨版本交给 `PdataMatch` 矫正。详见 [插件开发指南 §5.8](docs/PLUGIN_GUIDE.md)。
-
----
-
-## 两条容易踩的坑
-
-**1. 不要用函数序言校验来判断符号是否正确。**
-
-函数入口会被别的插件 hook 改写成 `E9 xx xx xx xx`，此时"比对原始入口字节"必然失败，
-而失败原因与"游戏更新"无法区分。本仓库已从所有模块中移除该做法。
-
-定位请交给「符号名主路径 + 唯一命中的 AOB 兜底」；确需序言校验的条件与例外见
-[插件开发指南 §5.9](docs/PLUGIN_GUIDE.md)。
-
-**2. 不要在别人的 hook 点上再装钩子或打补丁。**
-
-Loader 双向禁止这种组合（MinHook 会改写目标序言，两边各存一份"原始字节"必然互相覆盖）：
-目标 32 字节窗口内有钩子 → `Patch` 拒绝；已有补丁 → `InstallHook` 拒绝。
-要改一个已挂钩的函数，请在 detour 里实现。
 
 ---
 

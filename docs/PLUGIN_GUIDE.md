@@ -1,5 +1,7 @@
 # Civ6DllLoader 插件开发指南
 
+> 中文 | [English](PLUGIN_GUIDE.en.md)
+
 面向：**开发文明 6 C/C++ 功能插件的 Mod 作者**。无需阅读或修改 Loader 源码；只需在工程中包含 `HookAPI.h`，按规范声明插件类别并实现 `OnLoad`，编译后将 DLL 放入对应的 Mod 插件子目录。
 
 ---

@@ -1,5 +1,7 @@
 # UnitDamageCap
 
+> 中文 | [English](README.en.md)
+
 > 分类：**BugFix** · 返回 [工程总览](../../../README.md)
 
 修复「单位生命值超过 100 后伤害打不死」。

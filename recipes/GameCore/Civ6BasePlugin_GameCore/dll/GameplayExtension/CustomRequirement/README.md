@@ -1,5 +1,7 @@
 # CustomRequirement
 
+> 中文 | [English](README.en.md)
+
 为文明6风云变幻增加两个自定义 **Requirement**（`GameplayExtension` 分类下的示例模块）：
 
 | 源码 | 负责内容 | 注册后安装的 hook |

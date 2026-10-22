@@ -1,5 +1,7 @@
 # GreatWorkTypeLookup
 
+> 中文 | [English](README.en.md)
+
 > 分类：**BugFix** · 返回 [工程总览](../../../README.md)
 
 让模组新增的巨作类型与巨作槽类型能被引擎识别。

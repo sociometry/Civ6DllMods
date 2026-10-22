@@ -1,5 +1,7 @@
 # ModConfig
 
+> 中文 | [English](README.en.md)
+
 > 分类：**APIExtension** · 返回 [工程总览](../../../README.md)
 
 给模组作者的开箱即用键值持久化 Lua 接口。

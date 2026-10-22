@@ -1,5 +1,7 @@
 # Mod 模板使用说明
 
+> 中文 | [English](README.en.md)
+
 - 获取最新版薄壳 `GameCore_XP2_Shell_FinalRelease.dll` 和 runtime `Civ6DllLoader.runtime.dll`，放到 `Binaries\Win64\` 目录。
 - 你的插件 DLL 放到 **`Binaries\Win64\Plugins\Global\`**（常驻插件）或 **`Binaries\Win64\Plugins\GameCore\`**（对局插件）。
   直接放在 `Plugins\` 根目录下不会被扫描到。

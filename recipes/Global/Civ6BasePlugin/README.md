@@ -1,5 +1,7 @@
 # Civ6BasePlugin（Global 侧）
 
+> 中文 | [English](README.en.md)
+
 Civilization VI 的「基础插件集」Global 侧，跑在 [Civ6DllLoader] runtime 的 HookAPI 插件架构上。
 
 - **插件类别**：Global（宏 `CIV6_PLUGIN_GLOBAL`），入口 `OnLoad(HookContext* ctx)`

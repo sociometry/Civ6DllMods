@@ -1,5 +1,7 @@
 # GreatWorkPreserve
 
+> 中文 | [English](README.en.md)
+
 > 分类：**BugFix** · 返回 [工程总览](../../../README.md)
 
 修复「改变额外巨作槽数量时，该建筑已放置的巨作全部丢失」。

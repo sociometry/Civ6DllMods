@@ -1,5 +1,7 @@
 # Civ6BasePlugin_GameCore
 
+> 中文 | [English](README.en.md)
+
 Civilization VI 的 **GameCore 生命周期插件工程**，跑在 [Civ6DllLoader] runtime 的 **HookAPI** 插件架构上。
 
 - **插件类别**：GameCore（宏 `CIV6_PLUGIN_GAMECORE`），入口 `OnLoad(HookContext* ctx)`

@@ -1,5 +1,7 @@
 # GreatWorkAPI
 
+> 中文 | [English](README.en.md)
+
 > 分类：**APIExtension** · 返回 [工程总览](../../../README.md)
 
 给模组作者补上「添加巨作」的 Lua 接口。

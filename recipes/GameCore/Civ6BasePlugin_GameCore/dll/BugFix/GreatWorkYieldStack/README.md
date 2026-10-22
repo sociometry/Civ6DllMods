@@ -1,5 +1,7 @@
 # GreatWorkYieldStack
 
+> 中文 | [English](README.en.md)
+
 > 分类：**BugFix** · 返回 [工程总览](../../../README.md)
 
 让同种巨作来自多个来源的产出加成能够叠加。

@@ -1,5 +1,7 @@
 # GreatWorkModifierAttach
 
+> 中文 | [English](README.en.md)
+
 > 分类：**BugFix** · 返回 [工程总览](../../../README.md)
 
 让伟人创作出来的巨作能触发挂在它身上的 Modifier。

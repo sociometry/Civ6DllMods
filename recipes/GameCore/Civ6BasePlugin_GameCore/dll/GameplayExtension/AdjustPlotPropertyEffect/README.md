@@ -1,5 +1,7 @@
 # AdjustPlotPropertyEffect
 
+> 中文 | [English](README.en.md)
+
 往 GameEffects 注册表注入 `EFFECT_ADJUST_PLOT_PROPERTY`（`GameplayExtension` 分类下的示例模块）。
 
 ## 当前行为

@@ -1,5 +1,7 @@
 # FourRing — hook 示例：四环地块数
 
+> 中文 | [English](README.en.md)
+
 把 `GameCore::City::CityHexspace::ComputePlotsFromRadius` 固定返回 **43**，让所有调用点的 `ComputePlotsFromRadius(2) + 18` 恰好得到 **61**（四环格子总数），验证「按名取符号 + InstallHook」。
 
 > 注意不是返回 61：调用点会再加 18，61 + 18 = 79 会越过 61 项环偏移表，导致幻影地块重复计入产出。

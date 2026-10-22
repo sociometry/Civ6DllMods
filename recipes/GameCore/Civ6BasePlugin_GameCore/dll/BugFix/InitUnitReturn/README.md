@@ -1,5 +1,7 @@
 # InitUnitReturn
 
+> 中文 | [English](README.en.md)
+
 > 分类：**BugFix** · 返回 [工程总览](../../../README.md)
 
 让 `UnitManager.InitUnitValidAdjacentHex` 返回它建出来的那个单位。
