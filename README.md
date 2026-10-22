@@ -108,3 +108,13 @@ recipes/
 docs/                 开发指南、专题分析、mod 模板
 tools/                构建 / 校验 / 部署脚本
 ```
+
+---
+
+## 贡献者
+
+| 贡献者 | 负责的功能 |
+| --- | --- |
+| [Aws63140](https://github.com/Aws63140) | `Player:GetGovernors():SetAvailableGovPoints(n)`（[GovernorAPI](recipes/GameCore/Civ6BasePlugin_GameCore/dll/APIExtension/GovernorAPI/README.md)）<br>`Plot:ChangeAppeal(n)`（[PlotAPI](recipes/GameCore/Civ6BasePlugin_GameCore/dll/APIExtension/PlotAPI/README.md)） |
+| [sociometry](https://github.com/sociometry) | 自定义 Requirement（`REQUIREMENT_PLAYER_PROPERTY_MATCHES` / `REQUIREMENT_PLOT_ROUTE_TYPE_MATCHES`）<br>自定义 Effect（`EFFECT_ADJUST_PLOT_PROPERTY`）<br>[FourRing](recipes/GameCore/FourRing/README.md) 工程<br>见 [GameplayExtension](recipes/GameCore/Civ6BasePlugin_GameCore/dll/GameplayExtension/) |
+| [Sumcam-L](https://github.com/Sumcam-L) | Civ6DllLoader 插件工程与文档、GreatWorkAPI、ModifierManagerAPI、UnitLevelAPI、7 个巨作/单位相关 BugFix |

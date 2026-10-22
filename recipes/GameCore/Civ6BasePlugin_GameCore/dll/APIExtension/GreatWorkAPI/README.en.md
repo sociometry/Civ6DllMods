@@ -21,13 +21,17 @@ GreatWorkManager.AddGreatWork(playerID, greatWorkIndex)          --> boolean
 
 -- specified city
 GreatWorkManager.AddGreatWorkToCity(playerID, cityID, gwIndex)  --> boolean
+
+-- Remove: the first Great Work of that type owned by the player
+-- (when several copies exist, only one is removed)
+GreatWorkManager.RemoveGreatWork(playerID, greatWorkType)       --> boolean
 ```
 
 | Parameter | Meaning |
 | --- | --- |
 | `playerID` | player ID |
 | `cityID` | city ID (used by `AddGreatWorkToCity`) |
-| `greatWorkIndex` | **database Index** (`.Index` of `GameInfo.GreatWorks`), not `GreatWorkListIndex` |
+| `greatWorkIndex` / `greatWorkType` | **database Index** (`.Index` of `GameInfo.GreatWorks`), not `GreatWorkListIndex`. The two parameter names denote the same value, named after their semantics |
 
 Invalid arguments (negative numbers, wrong types) return `false` and **do not throw a Lua error**.
 
@@ -65,6 +69,48 @@ int GreatWorkTypeOfListIndex(void* culture, int listIndex) {
 ```
 
 When the module is not loaded this notification is a no-op, and the main flow of the interface is unaffected.
+
+## Removal: find the first copy by `greatWorkType`
+
+The engine has **no** "remove by greatWorkType" function. The only removal entry point is:
+
+```c
+int Buildings::RemoveGreatWork(Buildings*, GreatWorkListIndex listIndex);
+// Scans every slot of every building, hits the first slot whose greatWorkIndex == listIndex,
+// writes -1 into it and returns the slot index.
+```
+
+It takes a **listIndex** (a Culture list index), while the API takes a **greatWorkType**.
+The two are not interchangeable: the 2nd, 3rd… copy of the same Great Work each occupies
+its own list entry — different listIndex, same type. So removal takes two steps:
+
+```
+1. Walk every city of the player -> every building -> every slot
+     a slot only stores listIndex -> look that entry up in the Culture list to get its type
+     -> compare with the target greatWorkType; stop at the first hit and keep that listIndex
+2. Buildings::RemoveGreatWork(buildings, listIndex)   -> clears that slot
+3. ClearGreatWorkOwner(culture, listIndex)            -> writes -1 into the entry's player field
+4. GreatWorkModifierAttach_NotifyRemoved(buildings, greatWorkType)
+```
+
+The walk order is city list (capital first) -> building records -> slots, the same order the
+engine itself uses, so "remove only the first copy" behaves predictably.
+
+### Why the entry is only cleared, never erased
+
+The `greatWorks` listIndex is **persisted in save games**. Erasing an element from the vector
+shifts every later entry, instantly invalidating old saves and any index cached elsewhere.
+So the entry stays in place and only its `player` field is written back to `-1`
+(the engine's own "unassigned" sentinel) — which also lets the next add of the same type reuse it.
+
+### Why the Removed signal must be fired manually
+
+`GameEffects::GameEventHandler::OnGreatWorkRemoved_DetachGameEffects` subscribes to
+`Signals+0x19C8`, but **nothing in the whole binary ever fires it** (the engine's own
+`Deal::GreatWork::Enact` and `SpyGreatWorkHeist` just call `RemoveGreatWork` and stop).
+Without it, the Modifier attached earlier stays on the city forever: "add, remove, add again"
+accumulates the same bonus multiple times. See
+[GreatWorkModifierAttach](../../BugFix/GreatWorkModifierAttach/README.md).
 
 ### Why use `AddGreatWork` rather than `AddGreatWorkToSlot(..., -1)`
 
@@ -180,6 +226,7 @@ Culture +0x118 = greatWorks vector.begin
 | `Buildings::CanAddGreatWork` | `HookName` + AOB | 38 bytes, unique |
 | `Buildings::AddGreatWork` | `HookName` + AOB | 31 bytes, unique |
 | `Buildings::AddGreatWorkToSlot` | `HookName` + AOB | 22 bytes, unique (resolution and readiness check only, not used for placement) |
+| `Buildings::RemoveGreatWork` | `HookName` + AOB | 24 bytes, unique (used by Remove only) |
 | `Player::Districts_Units_Cities::Find` | `HookName` + AOB | 22 bytes, unique |
 
 > The AOB byte counts are governed by the actual strings of `HookName(sym, "...")` in `GreatWorkAPI.cpp`;
@@ -187,15 +234,17 @@ Culture +0x118 = greatWorks vector.begin
 
 ## Registration environment
 
-Registered only into the **gameplay** script environment — these two interfaces operate on engine gameplay domain objects
+Registered only into the **gameplay** script environment — these three interfaces operate on engine gameplay domain objects
 (`Culture` / `Buildings`), which the UI script environment does not use and should not expose.
 
 ## Log
 
 ```
-[GreatWorkAPI] symbols ok; GreatWorkManager.AddGreatWork/AddGreatWorkToCity registered
+[GreatWorkAPI] symbols ok; GreatWorkManager.AddGreatWork/AddGreatWorkToCity/RemoveGreatWork registered
 [GreatWorkAPI] AddGreatWorkToCity ok: player=0 city=65536 gw=0 list=0
 [GreatWorkAPI] duplicate great work: gw=0 reuse=0 -> new=5
+[GreatWorkAPI] RemoveGreatWork ok: player=0 gw=0 list=0 slot=1
+[GreatWorkModifierAttach] GreatWorkRemoved dispatched: gw=0
 ```
 
 The appearance of `duplicate great work` means the multiple-copy support was triggered: `reuse` is the index that would originally have been reused,

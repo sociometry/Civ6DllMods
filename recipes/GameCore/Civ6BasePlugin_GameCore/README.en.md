@@ -33,9 +33,11 @@ Every module has its own README explaining which defect it fixes, how it is loca
 
 | Module | Which interface it adds |
 | --- | --- |
-| [GreatWorkAPI](dll/APIExtension/GreatWorkAPI/README.md) | `GreatWorkManager.AddGreatWork` / `AddGreatWorkToCity` (supports multiple copies of the same Great Work) |
+| [GreatWorkAPI](dll/APIExtension/GreatWorkAPI/README.md) | `GreatWorkManager.AddGreatWork` / `AddGreatWorkToCity` / `RemoveGreatWork` (supports multiple copies of the same Great Work) |
 | [ModifierManagerAPI](dll/APIExtension/ModifierManagerAPI/README.md) | `unit:AttachModifierByID` / `ModifierManager.DetachModifierByID` / `GetCount` |
 | [UnitLevelAPI](dll/APIExtension/UnitLevelAPI/README.md) | `unit:GetExperience():SetLevel(n)` |
+| [GovernorAPI](dll/APIExtension/GovernorAPI/README.md) | `Player:GetGovernors():SetAvailableGovPoints(n)` |
+| [PlotAPI](dll/APIExtension/PlotAPI/README.md) | `Plot:ChangeAppeal(n)` (accumulating delta, real data untouched) |
 
 ### GameplayExtension — Adding game objects the engine does not originally have
 
@@ -104,7 +106,9 @@ recipes/GameCore/Civ6BasePlugin_GameCore/
     └── APIExtension/
         ├── GreatWorkAPI/          + README.md
         ├── ModifierManagerAPI/    + README.md
-        └── UnitLevelAPI/          + README.md
+        ├── UnitLevelAPI/          + README.md
+        ├── GovernorAPI/           + README.md
+        └── PlotAPI/               + README.md
 ```
 
 ---
@@ -141,9 +145,11 @@ Civ6BasePlugin_GameCore: OnLoad
 [GreatWorkModifierAttach] active: great works from Great Person now fire GreatWorkAdded
 [InitUnitReturn] active: InitUnitValidAdjacentHex now returns the unit instance
 [UnitDamageCap] hooked SetDamage+0x27; Range upper bound now Unit::GetMaxDamage() (detour=NNN bytes, orig=0x...)
-[GreatWorkAPI] symbols ok; GreatWorkManager.AddGreatWork/AddGreatWorkToCity registered
+[GreatWorkAPI] symbols ok; GreatWorkManager.AddGreatWork/AddGreatWorkToCity/RemoveGreatWork registered
 [ModifierManager] unit-method inject: reg=1 pushed=1 (unit:AttachModifierByID(id))
 [UnitLevelAPI] experience-method inject: reg=1 pushed=1 (unit:GetExperience():SetLevel(n))
+[GovernorAPI] active: SetAvailableGovPoints pushed=1
+[PlotAPI] active: ChangeAppeal pushed=1
 Civ6BasePlugin_GameCore: loaded
 ```
 
@@ -156,10 +162,15 @@ If any module reports `target not resolvable`, that target drifted after a game 
 -- Great Work
 print(GreatWorkManager.AddGreatWork(0, 0))            -- playerID, greatWorkIndex
 print(GreatWorkManager.AddGreatWorkToCity(0, 1, 2))   -- playerID, cityID, greatWorkIndex
+print(GreatWorkManager.RemoveGreatWork(0, 0))         -- playerID, greatWorkType (removes only the first copy)
 
 -- Modifier
 print(ModifierManager ~= nil)
 unit:AttachModifierByID("MODIFIER_ID")                -- returns the index, or -1
+
+-- Governor points / Appeal
+Players[0]:GetGovernors():SetAvailableGovPoints(3)    -- -> true (sets "available"; spent is unchanged)
+Map.GetPlot(10, 10):ChangeAppeal(3)                   -- -> true (relative delta, accumulates)
 
 -- Unit level
 unit:GetExperience():SetLevel(3)                      -- -> true

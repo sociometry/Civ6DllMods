@@ -33,9 +33,11 @@ Civilization VI 的 **GameCore 生命周期插件工程**，跑在 [Civ6DllLoade
 
 | 模块 | 补什么接口 |
 | --- | --- |
-| [GreatWorkAPI](dll/APIExtension/GreatWorkAPI/README.md) | `GreatWorkManager.AddGreatWork` / `AddGreatWorkToCity`（支持同种巨作多份） |
+| [GreatWorkAPI](dll/APIExtension/GreatWorkAPI/README.md) | `GreatWorkManager.AddGreatWork` / `AddGreatWorkToCity` / `RemoveGreatWork`（支持同种巨作多份） |
 | [ModifierManagerAPI](dll/APIExtension/ModifierManagerAPI/README.md) | `unit:AttachModifierByID` / `ModifierManager.DetachModifierByID` / `GetCount` |
 | [UnitLevelAPI](dll/APIExtension/UnitLevelAPI/README.md) | `unit:GetExperience():SetLevel(n)` |
+| [GovernorAPI](dll/APIExtension/GovernorAPI/README.md) | `Player:GetGovernors():SetAvailableGovPoints(n)` |
+| [PlotAPI](dll/APIExtension/PlotAPI/README.md) | `Plot:ChangeAppeal(n)`（累加增量，不改真实数据） |
 
 ### GameplayExtension —— 新增引擎本来没有的游戏对象
 
@@ -103,7 +105,9 @@ recipes/GameCore/Civ6BasePlugin_GameCore/
     └── APIExtension/
         ├── GreatWorkAPI/          + README.md
         ├── ModifierManagerAPI/    + README.md
-        └── UnitLevelAPI/          + README.md
+        ├── UnitLevelAPI/          + README.md
+        ├── GovernorAPI/           + README.md
+        └── PlotAPI/               + README.md
 ```
 
 ---
@@ -140,9 +144,11 @@ Civ6BasePlugin_GameCore: OnLoad
 [GreatWorkModifierAttach] active: great works from Great Person now fire GreatWorkAdded
 [InitUnitReturn] active: InitUnitValidAdjacentHex now returns the unit instance
 [UnitDamageCap] hooked SetDamage+0x27; Range upper bound now Unit::GetMaxDamage() (detour=NNN bytes, orig=0x...)
-[GreatWorkAPI] symbols ok; GreatWorkManager.AddGreatWork/AddGreatWorkToCity registered
+[GreatWorkAPI] symbols ok; GreatWorkManager.AddGreatWork/AddGreatWorkToCity/RemoveGreatWork registered
 [ModifierManager] unit-method inject: reg=1 pushed=1 (unit:AttachModifierByID(id))
 [UnitLevelAPI] experience-method inject: reg=1 pushed=1 (unit:GetExperience():SetLevel(n))
+[GovernorAPI] active: SetAvailableGovPoints pushed=1
+[PlotAPI] active: ChangeAppeal pushed=1
 Civ6BasePlugin_GameCore: loaded
 ```
 
@@ -155,10 +161,15 @@ Civ6BasePlugin_GameCore: loaded
 -- 巨作
 print(GreatWorkManager.AddGreatWork(0, 0))            -- playerID, greatWorkIndex
 print(GreatWorkManager.AddGreatWorkToCity(0, 1, 2))   -- playerID, cityID, greatWorkIndex
+print(GreatWorkManager.RemoveGreatWork(0, 0))         -- playerID, greatWorkType（同类型多份只删第一件）
 
 -- 修饰符
 print(ModifierManager ~= nil)
 unit:AttachModifierByID("MODIFIER_ID")                -- 返回索引或 -1
+
+-- 总督点 / 魅力
+Players[0]:GetGovernors():SetAvailableGovPoints(3)    -- -> true（设的是"可用"，已花不变）
+Map.GetPlot(10, 10):ChangeAppeal(3)                   -- -> true（相对增量，可累加）
 
 -- 单位等级
 unit:GetExperience():SetLevel(3)                      -- -> true

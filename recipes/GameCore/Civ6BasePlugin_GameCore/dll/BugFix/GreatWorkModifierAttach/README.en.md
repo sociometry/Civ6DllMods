@@ -101,6 +101,32 @@ int GreatWorkTypeOfListIndex(void* culture, int listIndex) {
 If the module is not loaded / symbol resolution fails, `GreatWorkModifierAttach_NotifyAdded` is an empty implementation,
 and the interface's main flow is unaffected.
 
+### The removal direction needs the same treatment
+
+`OnGreatWorkRemoved_DetachGameEffects` subscribes to `Signals+0x19C8`, and just like the Added one it is
+**never fired anywhere in the binary** — the engine's own `Deal::GreatWork::Enact` and `SpyGreatWorkHeist`
+only call `Buildings::RemoveGreatWork` to write -1 into the slot and stop.
+
+Consequence: a removed Great Work's Modifier is never cleared from the city. "Add one -> remove it -> add another"
+can stack the same bonus multiple times.
+
+So `GreatWorkAPI.RemoveGreatWork` explicitly calls `GreatWorkModifierAttach_NotifyRemoved()` after a successful
+removal. Both signals have the same shape (`void(City const*, GreatWorkTypes)`) and are ICF-folded into one
+Dispatch body, so they share the same function pointer and differ only in the signal offset:
+
+```c
+bool DoDispatchGreatWorkSignal(size_t signalOffset, void* buildings, int greatWorkType) {
+    ...
+    g_dispatch(signals + signalOffset, city, greatWorkType);
+}
+DoDispatchGreatWorkAdded   -> OFF_SIGNAL_GW_ADDED   (0x19B0)
+DoDispatchGreatWorkRemoved -> OFF_SIGNAL_GW_REMOVED (0x19C8)
+```
+
+**Ordering requirement**: it must fire *after* `RemoveGreatWork`. Detach goes through
+`shared_ptr<IModifierObject>` (aggregated per City) and has nothing to do with the slot index; firing early would
+just strip the bonus from a Great Work that was not actually removed.
+
 ### Covering both paths
 
 The game has two “a new Great Work is born” paths; this module covers each with a different mechanism:
@@ -171,11 +197,12 @@ This was verified by “the first 29 bytes of `Dispatch` being byte-for-byte ide
 > `Game::Instance::Edit` is a single `mov rax, cs:ms_pkCurrentGame; retn`,
 > returning the global pointer directly; it does not need a `Game::Instance*` argument.
 
-The module also exports one C function for other modules of this project to use:
+The module also exports C functions for other modules of this project to use:
 
 | Export | Purpose |
 | --- | --- |
 | `GreatWorkModifierAttach_NotifyAdded(buildings, greatWorkType)` | Called by `GreatWorkAPI` after a genuine addition |
+| `GreatWorkModifierAttach_NotifyRemoved(buildings, greatWorkType)` | Called by `GreatWorkAPI.RemoveGreatWork` after a genuine removal |
 
 ## Verification
 

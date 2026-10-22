@@ -25,6 +25,8 @@
 #include "APIExtension/GreatWorkAPI/GreatWorkAPI.h"
 #include "APIExtension/ModifierManagerAPI/ModifierManagerAPI.h"
 #include "APIExtension/UnitLevelAPI/UnitLevelAPI.h"
+#include "APIExtension/GovernorAPI/GovernorAPI.h"
+#include "APIExtension/PlotAPI/PlotAPI.h"
 #include "GameplayExtension/CustomRequirement/CustomRequirement.h"
 #include "GameplayExtension/AdjustPlotPropertyEffect/AdjustPlotPropertyEffect.h"
 
@@ -78,6 +80,8 @@ extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
 	GreatWorkAPI_Init(api);
 	ModifierManagerAPI_Init(api);
 	UnitLevelAPI_Init(api);
+	GovernorAPI_Init(api);
+	PlotAPI_Init(api);
 
 	// ---- GameplayExtension ----
 	// 两个自定义 Requirement + 一个自定义 Effect。三者互不依赖，任一失败不影响其它。
@@ -101,6 +105,8 @@ extern "C" __declspec(dllexport) void OnUnload() {
 	GreatWorkAPI_Shutdown();
 	ModifierManagerAPI_Shutdown();
 	UnitLevelAPI_Shutdown();
+	GovernorAPI_Shutdown();
+	PlotAPI_Shutdown();
 	CustomRequirement_ShutdownPlayerProperty();
 	CustomRequirement_ShutdownPlotRoute();
 	AdjustPlotPropertyEffect_Shutdown();

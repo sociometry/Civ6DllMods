@@ -108,6 +108,7 @@ constexpr HookInfo kTargetGameEdit = HookName(
 // ---------------------------------------------------------------------------
 constexpr size_t OFF_GAME_SIGNALS     = 0x280;   // Game::Instance -> Signals
 constexpr size_t OFF_SIGNAL_GW_ADDED  = 0x19B0;  // Signals -> ProtoSignal<GreatWorkAdded>
+constexpr size_t OFF_SIGNAL_GW_REMOVED = 0x19C8; // Signals -> ProtoSignal<GreatWorkRemoved>
 constexpr size_t OFF_BUILDINGS_CITY   = 0x000;   // Buildings -> City::Instance*（m_pCity）
 
 // ---------------------------------------------------------------------------
@@ -124,23 +125,31 @@ SignalDispatchFn         g_dispatch = nullptr;
 GameEditFn               g_gameEdit = nullptr;
 
 // ---------------------------------------------------------------------------
-// 发一次 GreatWorkAdded 信号
+// 发一次 GreatWork 信号（Added / Removed 共用）
 // ---------------------------------------------------------------------------
-void DoDispatchGreatWorkAdded(void* buildings, int greatWorkType) {
-	if (!buildings || greatWorkType < 0) return;
-	if (!g_dispatch || !g_gameEdit) return;
+// 两个 ProtoSignal 实例的模板参数形状相同（void(City const*, GreatWorkTypes)），
+// 在映像里被 ICF 合并成同一份 Dispatch 代码，因此同一个函数指针量即可，
+// 差别只在 signal 的偏移（+0x19B0 / +0x19C8）。
+bool DoDispatchGreatWorkSignal(size_t signalOffset, void* buildings, int greatWorkType) {
+	if (!buildings || greatWorkType < 0) return false;
+	if (!g_dispatch || !g_gameEdit) return false;
 
 	const void* city = *reinterpret_cast<void* const*>(
 		static_cast<const char*>(buildings) + OFF_BUILDINGS_CITY);
-	if (!city) return;
+	if (!city) return false;
 
 	void* game = g_gameEdit();
-	if (!game) return;
+	if (!game) return false;
 
 	char* signals = *reinterpret_cast<char**>(static_cast<char*>(game) + OFF_GAME_SIGNALS);
-	if (!signals) return;
+	if (!signals) return false;
 
-	g_dispatch(signals + OFF_SIGNAL_GW_ADDED, city, greatWorkType);
+	g_dispatch(signals + signalOffset, city, greatWorkType);
+	return true;
+}
+
+void DoDispatchGreatWorkAdded(void* buildings, int greatWorkType) {
+	DoDispatchGreatWorkSignal(OFF_SIGNAL_GW_ADDED, buildings, greatWorkType);
 }
 
 // ---------------------------------------------------------------------------
@@ -201,6 +210,21 @@ void GreatWorkModifierAttach_Init(HookAPI* api) {
 // 模块未就绪时静默返回 —— 调用方不需要判空，也不会因此中断主流程。
 void GreatWorkModifierAttach_NotifyAdded(void* buildings, int greatWorkType) {
 	DoDispatchGreatWorkAdded(buildings, greatWorkType);
+}
+
+// 公开出口：供 GreatWorkManager 接口在「确实移除了一件巨作」后调用。
+//
+// 引擎自己从不发这条信号（全库无发射点），所以这是 Detach 的唯一来源。
+// 顺序要求：必须在 Buildings::RemoveGreatWork 之后调用 —— ClearModifiers 走的是
+// shared_ptr<IModifierObject>，与槽里那份索引无关；提前发只会让"移除失败"的巨作丢加成。
+void GreatWorkModifierAttach_NotifyRemoved(void* buildings, int greatWorkType) {
+	if (!g_api) return;
+	if (!DoDispatchGreatWorkSignal(OFF_SIGNAL_GW_REMOVED, buildings, greatWorkType)) {
+		g_api->Log("[GreatWorkModifierAttach] detach signal skipped: buildings=%p gw=%d",
+			buildings, greatWorkType);
+		return;
+	}
+	g_api->Log("[GreatWorkModifierAttach] GreatWorkRemoved dispatched: gw=%d", greatWorkType);
 }
 
 void GreatWorkModifierAttach_Shutdown() {

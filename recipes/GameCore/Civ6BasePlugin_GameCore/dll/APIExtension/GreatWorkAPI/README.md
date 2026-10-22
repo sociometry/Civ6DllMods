@@ -4,7 +4,7 @@
 
 > 分类：**APIExtension** · 返回 [工程总览](../../../README.md)
 
-给模组作者补上「添加巨作」的 Lua 接口。
+给模组作者补上「添加 / 移除巨作」的 Lua 接口。
 
 ## 为什么需要
 
@@ -21,13 +21,16 @@ GreatWorkManager.AddGreatWork(playerID, greatWorkIndex)          --> boolean
 
 -- 指定城市
 GreatWorkManager.AddGreatWorkToCity(playerID, cityID, gwIndex)  --> boolean
+
+-- 移除：玩家范围内第一件该类型的巨作（同类型有多份时只删一件）
+GreatWorkManager.RemoveGreatWork(playerID, greatWorkType)       --> boolean
 ```
 
 | 参数 | 含义 |
 | --- | --- |
 | `playerID` | 玩家 ID |
 | `cityID` | 城市 ID（`AddGreatWorkToCity` 用） |
-| `greatWorkIndex` | **数据库 Index**（`GameInfo.GreatWorks` 的 `.Index`），不是 `GreatWorkListIndex` |
+| `greatWorkIndex` / `greatWorkType` | **数据库 Index**（`GameInfo.GreatWorks` 的 `.Index`），不是 `GreatWorkListIndex`。两个参数名是同一个东西，按语义分别命名 |
 
 非法参数（负数、类型不对）返回 `false`，**不抛 Lua 错误**。
 
@@ -65,6 +68,45 @@ int GreatWorkTypeOfListIndex(void* culture, int listIndex) {
 ```
 
 模块未加载时该通知是空实现，接口主流程不受影响。
+
+## 移除：按「巨作类型」找第一件
+
+引擎**没有**「按 greatWorkType 移除」的函数。唯一的移除入口是：
+
+```c
+int Buildings::RemoveGreatWork(Buildings*, GreatWorkListIndex listIndex);
+// 扫所有建筑的槽，命中第一个 greatWorkIndex == listIndex 的槽，写 -1 并返回槽下标
+```
+
+它收的是 **listIndex**（Culture 列表下标），而接口给的是 **greatWorkType**。
+两者不能混用：同种巨作的第 2、3… 份各占一条列表条目，listIndex 不同、type 相同。
+所以移除分两步走：
+
+```
+1. 遍历该玩家的每座城市 -> 每个建筑的每个槽
+     槽里只有 listIndex -> 回查 Culture 列表得到 type -> 比对目标 greatWorkType
+     命中即停，得到 listIndex
+2. Buildings::RemoveGreatWork(buildings, listIndex)   -> 清掉那个槽
+3. ClearGreatWorkOwner(culture, listIndex)            -> 条目 player 字段写回 -1
+4. GreatWorkModifierAttach_NotifyRemoved(buildings, greatWorkType)
+```
+
+遍历顺序 = 城市链表（首都优先）-> 建筑记录 -> 槽位，与引擎自己的扫描顺序一致，
+所以「同类型多份只删第一件」的行为是可预期的。
+
+### 为什么条目只清 owner、不删条目
+
+`greatWorks` 的 listIndex 是**存档持久化**的下标。从 vector 里删元素会让后面所有
+条目前移，旧存档和其它模块手上缓存的 index 立刻错位。所以条目原样保留，只把
+`player` 写回 `-1`（引擎自己的「未分配」哨兵）——这也让下次添加同类型能复用它。
+
+### 为什么要补发 Removed 信号
+
+`GameEffects::GameEventHandler::OnGreatWorkRemoved_DetachGameEffects` 订阅的是
+`Signals+0x19C8`，但**全库没有任何发射点**（引擎自己的 Deal Enact、间谍窃取都只调
+`RemoveGreatWork` 就结束）。不补发的话，该巨作之前挂上的 Modifier 会永久留在城市上：
+「加了删、删了加」能把同一份加成刷成多份。见
+[GreatWorkModifierAttach](../../BugFix/GreatWorkModifierAttach/README.md)。
 
 ### 为什么用 `AddGreatWork` 而不是 `AddGreatWorkToSlot(..., -1)`
 
@@ -181,21 +223,24 @@ Culture +0x118 = greatWorks vector.begin
 | `Buildings::AddGreatWork` | `HookName` + AOB | 31 字节，唯一 |
 | `Buildings::AddGreatWorkToSlot` | `HookName` + AOB | 22 字节，唯一（仅保留解析与就绪判定，不用于放置） |
 | `Player::Districts_Units_Cities::Find` | `HookName` + AOB | 22 字节，唯一 |
+| `Buildings::RemoveGreatWork` | `HookName` + AOB | 24 字节，唯一（仅用于 Remove） |
 
 > AOB 字节数以 `GreatWorkAPI.cpp` 里 `HookName(sym, "...")` 的实际串为准；
 > 改代码时同步本表，不要凭记忆填。
 
 ## 注册环境
 
-只注册到 **gameplay** 脚本环境 —— 这两个接口操作的是引擎 gameplay 域对象
+只注册到 **gameplay** 脚本环境 —— 这三个接口操作的是引擎 gameplay 域对象
 （`Culture` / `Buildings`），UI 脚本环境用不到，也不该在那里暴露。
 
 ## 日志
 
 ```
-[GreatWorkAPI] symbols ok; GreatWorkManager.AddGreatWork/AddGreatWorkToCity registered
+[GreatWorkAPI] symbols ok; GreatWorkManager.AddGreatWork/AddGreatWorkToCity/RemoveGreatWork registered
 [GreatWorkAPI] AddGreatWorkToCity ok: player=0 city=65536 gw=0 list=0
 [GreatWorkAPI] duplicate great work: gw=0 reuse=0 -> new=5
+[GreatWorkAPI] RemoveGreatWork ok: player=0 gw=0 list=0 slot=1
+[GreatWorkModifierAttach] GreatWorkRemoved dispatched: gw=0
 ```
 
 `duplicate great work` 出现说明触发了多份支持：`reuse` 是原本会复用的 index，

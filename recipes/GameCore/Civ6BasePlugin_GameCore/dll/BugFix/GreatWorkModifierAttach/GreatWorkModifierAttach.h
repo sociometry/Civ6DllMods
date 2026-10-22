@@ -49,3 +49,14 @@ void GreatWorkModifierAttach_Shutdown();
 //
 // 模块未加载或符号解析失败时是空实现，调用方无需判空。
 void GreatWorkModifierAttach_NotifyAdded(void* buildings, int greatWorkType);
+
+// 供其它模块调用：在「确实移除了一件巨作」之后补发 GreatWorkRemoved 信号。
+//
+// buildings  —— 原本承载该巨作的 City::Buildings*（内部取 Buildings+0x00 得到 City）
+// greatWorkType —— Definition::GreatWork 的索引，不是 greatWorkListIndex
+//
+// 为什么必须显式通知：GameEffects 的 Detach 处理器挂在 Signals+0x19C8 上，
+// 但全库没有任何地方发射这条信号（连引擎自己的 Deal Enact / 间谍窃取都只调
+// Buildings::RemoveGreatWork 就结束了）。不补发的话，该巨作此前挂上的 Modifier
+// 会永久留在城市上 —— 「添加 → 移除 → 再添加」能把加成刷成多份。
+void GreatWorkModifierAttach_NotifyRemoved(void* buildings, int greatWorkType);

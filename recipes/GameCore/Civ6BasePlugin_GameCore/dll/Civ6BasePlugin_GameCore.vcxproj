@@ -105,6 +105,8 @@
 		<ClInclude Include="APIExtension\GreatWorkAPI\GreatWorkAPI.h" />
 		<ClInclude Include="APIExtension\ModifierManagerAPI\ModifierManagerAPI.h" />
 		<ClInclude Include="APIExtension\UnitLevelAPI\UnitLevelAPI.h" />
+		<ClInclude Include="APIExtension\GovernorAPI\GovernorAPI.h" />
+		<ClInclude Include="APIExtension\PlotAPI\PlotAPI.h" />
 		<ClInclude Include="GameplayExtension\AdjustPlotPropertyEffect\AdjustPlotPropertyEffect.h" />
 		<ClInclude Include="GameplayExtension\CustomRequirement\CustomRequirement.h" />
 		<ClInclude Include="Common\GameCoreResolve.h" />
@@ -123,6 +125,8 @@
 		<ClCompile Include="APIExtension\GreatWorkAPI\GreatWorkAPI.cpp" />
 		<ClCompile Include="APIExtension\ModifierManagerAPI\ModifierManagerAPI.cpp" />
 		<ClCompile Include="APIExtension\UnitLevelAPI\UnitLevelAPI.cpp" />
+		<ClCompile Include="APIExtension\GovernorAPI\GovernorAPI.cpp" />
+		<ClCompile Include="APIExtension\PlotAPI\PlotAPI.cpp" />
 		<ClCompile Include="GameplayExtension\AdjustPlotPropertyEffect\AdjustPlotProperty.cpp" />
 		<ClCompile Include="GameplayExtension\CustomRequirement\PlayerPropertyMatches.cpp" />
 		<ClCompile Include="GameplayExtension\CustomRequirement\PlotRouteTypeMatches.cpp" />

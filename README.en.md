@@ -108,3 +108,13 @@ recipes/
 docs/                 developer guide, focused analyses, mod template
 tools/                build / verify / deploy scripts
 ```
+
+---
+
+## Contributors
+
+| Contributor | What they built |
+| --- | --- |
+| [Aws63140](https://github.com/Aws63140) | `Player:GetGovernors():SetAvailableGovPoints(n)` ([GovernorAPI](recipes/GameCore/Civ6BasePlugin_GameCore/dll/APIExtension/GovernorAPI/README.md))<br>`Plot:ChangeAppeal(n)` ([PlotAPI](recipes/GameCore/Civ6BasePlugin_GameCore/dll/APIExtension/PlotAPI/README.md)) |
+| [sociometry](https://github.com/sociometry) | Custom Requirements (`REQUIREMENT_PLAYER_PROPERTY_MATCHES` / `REQUIREMENT_PLOT_ROUTE_TYPE_MATCHES`)<br>Custom Effect (`EFFECT_ADJUST_PLOT_PROPERTY`)<br>The [FourRing](recipes/GameCore/FourRing/README.md) project<br>See [GameplayExtension](recipes/GameCore/Civ6BasePlugin_GameCore/dll/GameplayExtension/) |
+| [Sumcam-L](https://github.com/Sumcam-L) | The Civ6DllLoader plugin projects and docs, GreatWorkAPI, ModifierManagerAPI, UnitLevelAPI, and the seven Great Work / unit bug fixes |

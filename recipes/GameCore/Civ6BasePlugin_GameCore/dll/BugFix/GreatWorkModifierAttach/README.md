@@ -124,6 +124,33 @@ int GreatWorkTypeOfListIndex(void* culture, int listIndex) {
 （`Signals+0x19C8`）**全库无人发射**，旧城市那份永远解不掉，越搬越多。
 所以只能由「确实新增」的调用方显式通知。
 
+### 移除方向同样要补
+
+`OnGreatWorkRemoved_DetachGameEffects` 订阅的是 `Signals+0x19C8`，和 Added 一样
+**全库没有任何发射点** —— 引擎自己的 `Deal::GreatWork::Enact`、`SpyGreatWorkHeist`
+都只调 `Buildings::RemoveGreatWork` 把槽写 -1 就结束，从不发这条信号。
+
+后果：被移除的巨作，它此前挂在该城上的 Modifier 不会被 `ClearModifiers` 摘掉。
+「加一件 → 移除 → 再加一件」能把同一份加成累成多份。
+
+所以 `GreatWorkAPI.RemoveGreatWork` 在移除成功后显式调用
+`GreatWorkModifierAttach_NotifyRemoved()`。两个方向的信号形状完全相同
+（`void(City const*, GreatWorkTypes)`），在映像里被 ICF 合并成同一份 Dispatch，
+因此复用同一个函数指针，只换 signal 偏移：
+
+```c
+bool DoDispatchGreatWorkSignal(size_t signalOffset, void* buildings, int greatWorkType) {
+    ...
+    g_dispatch(signals + signalOffset, city, greatWorkType);
+}
+DoDispatchGreatWorkAdded  -> OFF_SIGNAL_GW_ADDED   (0x19B0)
+DoDispatchGreatWorkRemoved-> OFF_SIGNAL_GW_REMOVED (0x19C8)
+```
+
+**顺序要求**：必须在 `RemoveGreatWork` 之后发。Detach 走的是
+`shared_ptr<IModifierObject>`（按 City 聚合），与槽里那份索引无关；提前发只会让
+"其实没删成"的巨作白白丢加成。
+
 ### 其它候选
 
 | 候选钩子 | 结论 | 理由 |
@@ -176,6 +203,7 @@ Template 的 ABI 只跟形参的寄存器和个数有关，与具体类型无关
 | 导出 | 用途 |
 | --- | --- |
 | `GreatWorkModifierAttach_NotifyAdded(buildings, greatWorkType)` | 由 `GreatWorkAPI` 在"确实新增"后调用 |
+| `GreatWorkModifierAttach_NotifyRemoved(buildings, greatWorkType)` | 由 `GreatWorkAPI.RemoveGreatWork` 在"确实移除"后调用 |
 
 ## 验证
 

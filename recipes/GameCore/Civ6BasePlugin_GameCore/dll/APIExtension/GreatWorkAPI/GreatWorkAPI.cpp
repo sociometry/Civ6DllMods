@@ -1,5 +1,6 @@
 // GreatWorkAPI.cpp
-// 巨作添加整合接口（APIExtension 分类）：两个开箱即用的 Lua 接口，Lua 侧无需手工组合。
+// 巨作添加 / 移除整合接口（APIExtension 分类）：三个开箱即用的 Lua 接口，
+// Lua 侧无需手工组合。
 //
 // 相对上一版的改动（兼容性修复）：
 //   1) EditPlayer -> GetPlayer（HookAPI.h 中的现名）；
@@ -65,6 +66,16 @@ constexpr HookInfo kTargetCitiesFind = HookName(
 	"GameCore::Player::Districts_Units_Cities::Find",
 	"83 FA FF 74 3D 4C 8B 91 98 00 00 00 48 8B 81 A0 00 00 00 49 2B C2");
 
+// Buildings::RemoveGreatWork（public，RVA 0x10D370）
+//   int __thiscall (Buildings*, GreatWorkListIndex)
+//   扫 greatWorkBuildings 里所有建筑的槽，命中第一个 greatWorkIndex == 参数 的槽，
+//   把该槽的 greatWorkIndex 写 -1 并返回槽下标；找不到返回 -1。
+//   —— 只动目标槽一个字段：不碰 slotType、不碰数组结构、不回收 Culture 条目。
+//   全库实参只有一个（Culture 列表下标），没有"按 greatWorkType 移除"的版本。
+constexpr HookInfo kTargetRemoveGreatWork = HookName(
+	"GameCore::City::Buildings::RemoveGreatWork",
+	"44 8B 99 D8 00 00 00 44 8B D2 4C 8B 89 C8 00 00 00 49 C1 E3 05 4D 03 D9");
+
 // 序言特征码（当前仅作注释保留，不参与校验）
 constexpr uint8_t kSigCultureEdit[6]      = { 0x40, 0x53, 0x48, 0x83, 0xEC, 0x20 };
 constexpr uint8_t kSigFindOrAdd[8]        = { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74 };
@@ -73,6 +84,7 @@ constexpr uint8_t kSigCanAdd[8]           = { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48
 constexpr uint8_t kSigAddGreatWork[8]     = { 0x48, 0x89, 0x5C, 0x24, 0x10, 0x48, 0x89, 0x6C };
 constexpr uint8_t kSigAddToSlot[8]        = { 0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74 };
 constexpr uint8_t kSigCitiesFind[8]       = { 0x83, 0xFA, 0xFF, 0x74, 0x3D, 0x4C, 0x8B, 0x91 };
+constexpr uint8_t kSigRemoveGreatWork[8]  = { 0x44, 0x8B, 0x99, 0xD8, 0x00, 0x00, 0x00, 0x44 };
 
 // ---------------------------------------------------------------------------
 // 结构体偏移
@@ -110,6 +122,7 @@ typedef bool  (__fastcall* CanAddGreatWorkFn)(void* buildings, int listIndex, in
 typedef void  (__fastcall* AddGreatWorkFn)(void* buildings, int listIndex);
 typedef void  (__fastcall* AddGreatWorkToSlotFn)(void* buildings, int listIndex, int buildingType, int slotIndex);
 typedef void* (__fastcall* CitiesFindFn)(void* cities, int cityId);
+typedef int   (__fastcall* RemoveGreatWorkFn)(void* buildings, int listIndex);
 typedef int   (__fastcall* FindOrAddGreatWorkOrigFn)(void* culture, unsigned int greatWorkType);
 
 CultureEditFn           g_cultureEdit = nullptr;
@@ -121,6 +134,7 @@ AddGreatWorkFn          g_addGreatWork = nullptr;
 // 避免改变对外可用性。放置统一走 g_addGreatWork（内部有 IsValidObjectForSlot 校验）。
 AddGreatWorkToSlotFn    g_addGreatWorkToSlot = nullptr;
 CitiesFindFn            g_citiesFind = nullptr;
+RemoveGreatWorkFn       g_removeGreatWork = nullptr;
 FindOrAddGreatWorkOrigFn g_origFindOrAddGreatWork = nullptr;   // FindOrAddGreatWork 的原始实现
 
 // ---------------------------------------------------------------------------
@@ -131,6 +145,8 @@ FindOrAddGreatWorkOrigFn g_origFindOrAddGreatWork = nullptr;   // FindOrAddGreat
 bool IndexInUseInBuildings(void* buildings, int listIndex);
 bool IndexInUseAnywhere(int listIndex);
 int  AppendDuplicateGreatWork(void* culture, unsigned int greatWorkType);
+int  GreatWorkTypeOfListIndex(void* culture, int listIndex);
+bool RemoveGreatWorkByType(void* culture, int playerId, unsigned int greatWorkType);
 
 // 为「新增一件巨作」准备一条独占的 greatWorks 条目，返回 listIndex（失败 -1）。
 //
@@ -449,12 +465,141 @@ bool AddGreatWorkToCityCore(void* culture, unsigned int greatWorkIndex, int play
 }
 
 // ---------------------------------------------------------------------------
+// 移除巨作（按 greatWorkType，玩家范围内第一件）
+//
+// 【为什么不能只调 Buildings::RemoveGreatWork】
+//   它收的是 greatWorkListIndex（Culture 列表下标），不是 greatWorkType。
+//   同种巨作可以有多条列表条目（本模块的"多份支持"就是给第 2、3… 份各造一条），
+//   所以必须先把「类型」翻译成「该玩家城里实际躺着的下标」：
+//     遍历玩家的每座城市 -> 每个建筑的每个槽 -> 槽里 listIndex 回查 Culture 列表
+//     -> 比对 greatWorkType，命中即停。
+//
+// 【为什么只删第一件】
+//   需求就是"同类型多份只移除一件"。遍历顺序 = 城市链表顺序（首都优先）-> 建筑
+//   记录顺序 -> 槽位顺序，与引擎自己的 CanAddGreatWork 扫描顺序一致，行为可预期。
+//
+// 【删完要做的两件收尾】
+//   1) 把 Culture 条目的 player 字段写回 -1。
+//      条目本身留在列表里不回收（索引是存档持久化的，删条目会让后面所有巨作整体
+//      前移，旧存档 / 其它引用立刻错位）。player=-1 与"未分配"的原生语义一致，
+//      也让"再添加同类型"能复用到这条空闲条目。
+//   2) 补发 GameEffects 的 GreatWorkRemoved 信号，让它摘掉该巨作挂的 Modifier。
+//      引擎全库没有这条信号的发射点（连它自己的 Deal / 间谍窃取都不发），
+//      不补的话加成会永久留在城市上，"加了删、删了加"能把加成刷成多份。
+// ---------------------------------------------------------------------------
+
+// 在该 Buildings 里找第一个「槽里 index 的 type == greatWorkType」的槽，返回其
+// greatWorkListIndex（找不到 -1）。返回的是 index 而不是槽位，调用方直接交给
+// RemoveGreatWork —— 它在同一份数组上再扫一遍，必然命中原槽。
+int FindListIndexByTypeInBuildings(void* buildings, void* culture, unsigned int greatWorkType) {
+	if (!buildings || !culture) return -1;
+	char* b = static_cast<char*>(buildings);
+
+	void* data = *reinterpret_cast<void**>(b + OFF_BLD_GW_DATA);
+	const int count = *reinterpret_cast<int*>(b + OFF_BLD_GW_COUNT);
+	if (!data || count <= 0 || count > kMaxSanityCount) return -1;
+
+	char* rec = static_cast<char*>(data);
+	for (int i = 0; i < count; ++i, rec += BLD_GWINFO_SIZE) {
+		void* slots = *reinterpret_cast<void**>(rec + OFF_GWINFO_SLOTS);
+		const int num = *reinterpret_cast<int*>(rec + OFF_GWINFO_NUM);
+		if (!slots || num <= 0 || num > kMaxSanityCount) continue;
+
+		char* sp = static_cast<char*>(slots);
+		for (int k = 0; k < num; ++k, sp += GWSLOT_SIZE) {
+			const int listIndex = *reinterpret_cast<int*>(sp + OFF_GWSLOT_INDEX);
+			if (listIndex == kEmptyGwSlot) continue;
+			// 槽只存 listIndex，类型要回 Culture 列表查（同类型多份时下标各不相同）。
+			if (GreatWorkTypeOfListIndex(culture, listIndex) == static_cast<int>(greatWorkType)) {
+				return listIndex;
+			}
+		}
+	}
+	return -1;
+}
+
+// 清除 Culture 条目上的所有者标记（写回 -1 = 未分配）。
+void ClearGreatWorkOwner(void* culture, int listIndex) {
+	char* entry = GetGreatWorkEntry(culture, listIndex);
+	if (!entry) return;
+	*reinterpret_cast<int*>(entry + OFF_GW_PLAYER) = -1;
+}
+
+// 遍历该玩家的所有城市，移除第一件 greatWorkType 的巨作。
+bool RemoveGreatWorkByType(void* culture, int playerId, unsigned int greatWorkType) {
+	if (!culture || !g_removeGreatWork) return false;
+
+	void* cities = GetPlayerCities(playerId);
+	if (!cities) {
+		if (g_api) g_api->Log("[GreatWorkAPI] RemoveGreatWork: no player=%d", playerId);
+		return false;
+	}
+
+	void** node = *reinterpret_cast<void***>(static_cast<char*>(cities) + OFF_CITIES_HEAD);
+	int guard = 0;
+	while (node && guard++ < kMaxSanityCount) {
+		void* city = node[0];
+		if (city) {
+			void* buildings = static_cast<char*>(city) + OFF_CITY_BUILDINGS;
+			const int listIndex = FindListIndexByTypeInBuildings(buildings, culture, greatWorkType);
+			if (listIndex >= 0) {
+				// 引擎原生移除：只把目标槽的 greatWorkIndex 写 -1，返回槽下标。
+				const int slot = g_removeGreatWork(buildings, listIndex);
+				if (slot < 0) {
+					// 理论上不会发生（刚扫到过），但剔除失败时不能动 owner / 发信号。
+					if (g_api) {
+						g_api->Log("[GreatWorkAPI] RemoveGreatWork: engine refused gw=%u list=%d",
+							greatWorkType, listIndex);
+					}
+					return false;
+				}
+
+				// 收尾前先确认这条 index 是否还躺在别处。
+				//
+				// 正常数据里一个 index 只在一个槽（本模块的"多份支持"就是为此给每份造独立
+				// index）。但历史存档 / 旧版本插件可能留下"一个 index 两处"的脏数据，
+				// 那种情况下这一件并没有真的消失：既不能清 owner（另一处还要靠它），
+				// 也不能发 Detach（同城另一槽的 Modifier 会被连带清掉）。
+				const bool stillInUse = IndexInUseAnywhere(listIndex);
+				if (stillInUse) {
+					if (g_api) {
+						g_api->Log("[GreatWorkAPI] RemoveGreatWork: list=%d still used elsewhere, keep owner",
+							listIndex);
+					}
+					return true;
+				}
+
+				// 1) 条目保留、只清所有者：索引是存档持久化的，删条目会让后续整体前移。
+				ClearGreatWorkOwner(culture, listIndex);
+
+				// 2) 摘掉该巨作挂的 Modifier（引擎自己从不发 Removed 信号）。
+				GreatWorkModifierAttach_NotifyRemoved(buildings, static_cast<int>(greatWorkType));
+
+				if (g_api) {
+					g_api->Log("[GreatWorkAPI] RemoveGreatWork ok: player=%d gw=%u list=%d slot=%d",
+						playerId, greatWorkType, listIndex, slot);
+				}
+				return true;
+			}
+		}
+		node = reinterpret_cast<void**>(node[2]);
+	}
+
+	if (g_api) {
+		g_api->Log("[GreatWorkAPI] RemoveGreatWork: player=%d has no gw=%u",
+			playerId, greatWorkType);
+	}
+	return false;
+}
+
+// ---------------------------------------------------------------------------
 // Lua 封装（注册到全局 GreatWorkManager 表）
 // ---------------------------------------------------------------------------
 
 bool SymbolsReady() {
 	return g_cultureEdit && g_findOrAddGreatWork && g_setGreatWorkPlayer &&
-		g_canAddGreatWork && g_addGreatWork && g_addGreatWorkToSlot && g_citiesFind;
+		g_canAddGreatWork && g_addGreatWork && g_addGreatWorkToSlot && g_citiesFind &&
+		g_removeGreatWork;
 }
 
 // 读第 index 个整数参数：类型不是 number 时返回 fallback（不抛 Lua 错误）。
@@ -503,14 +648,41 @@ int lAddGreatWorkToCity(void* L) {
 	return 1;
 }
 
+// GreatWorkManager.RemoveGreatWork(playerID, greatWorkType) -> bool
+//
+// 语义：从该玩家所有城市里移除第一件该类型的巨作；同类型有多份时只删一件。
+// 参数口径与 Add 一致（greatWorkType = GameInfo.GreatWorks 的 Index）。
+int lRemoveGreatWork(void* L) {
+	if (!g_api) return 0;
+	if (!SymbolsReady()) {
+		g_api->LuaPushBoolean(L, false);
+		return 1;
+	}
+	const int playerId = ReadIntArg(L, 1, -1);
+	const int gwType = ReadIntArg(L, 2, -1);
+	if (playerId < 0 || gwType < 0) {
+		g_api->LuaPushBoolean(L, false);
+		return 1;
+	}
+	void* culture = g_cultureEdit();
+	if (!culture) {
+		g_api->LuaPushBoolean(L, false);
+		return 1;
+	}
+	g_api->LuaPushBoolean(L, RemoveGreatWorkByType(culture, playerId, static_cast<unsigned int>(gwType)));
+	return 1;
+}
+
 // 每次脚本环境初始化都重挂一次：gameplay 与 UI 是两个独立的 lua_State。
 void RegisterLuaGlobals(void* L) {
 	if (!g_api || !L) return;
-	g_api->LuaNewGlobalTable(L, "GreatWorkManager", 0, 2);
+	g_api->LuaNewGlobalTable(L, "GreatWorkManager", 0, 3);
 	g_api->LuaPushCFunctionField(L, -1, "AddGreatWork",
 		reinterpret_cast<void*>(&lAddGreatWork), "lAddGreatWork");
 	g_api->LuaPushCFunctionField(L, -1, "AddGreatWorkToCity",
 		reinterpret_cast<void*>(&lAddGreatWorkToCity), "lAddGreatWorkToCity");
+	g_api->LuaPushCFunctionField(L, -1, "RemoveGreatWork",
+		reinterpret_cast<void*>(&lRemoveGreatWork), "lRemoveGreatWork");
 	g_api->LuaPop(L, 1);
 }
 
@@ -538,12 +710,15 @@ void GreatWorkAPI_Init(HookAPI* api) {
 		kTargetAddGreatWorkToSlot, kSigAddToSlot, sizeof(kSigAddToSlot), "GreatWorkAPI/AddGreatWorkToSlot");
 	g_citiesFind = gc::ResolveVerified<CitiesFindFn>(api, kHookImageGameCoreXP2,
 		kTargetCitiesFind, kSigCitiesFind, sizeof(kSigCitiesFind), "GreatWorkAPI/Cities::Find");
+	g_removeGreatWork = gc::ResolveVerified<RemoveGreatWorkFn>(api, kHookImageGameCoreXP2,
+		kTargetRemoveGreatWork, kSigRemoveGreatWork, sizeof(kSigRemoveGreatWork),
+		"GreatWorkAPI/RemoveGreatWork");
 
 	// 只挂 gameplay：这两个接口操作的是引擎 gameplay 域对象（Culture / Buildings），
 	// UI 脚本环境用不到，也不该在那里暴露。
 	api->RegisterGameCoreScriptForGamePlay(&RegisterLuaGlobals);
 
-	api->Log("[GreatWorkAPI] symbols %s; GreatWorkManager.AddGreatWork/AddGreatWorkToCity registered",
+	api->Log("[GreatWorkAPI] symbols %s; GreatWorkManager.AddGreatWork/AddGreatWorkToCity/RemoveGreatWork registered",
 		SymbolsReady() ? "ok" : "incomplete (lua api returns false)");
 }
 
@@ -555,5 +730,6 @@ void GreatWorkAPI_Shutdown() {
 	g_addGreatWork = nullptr;
 	g_addGreatWorkToSlot = nullptr;
 	g_citiesFind = nullptr;
+	g_removeGreatWork = nullptr;
 	g_api = nullptr;
 }
