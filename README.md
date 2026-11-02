@@ -2,6 +2,8 @@
 
 > 中文 | [English](README.en.md)
 
+**DLL交流群：1131351989**
+
 [Civ6DllLoader](https://github.com/sociometry/Civ6DllLoader) 的 DLL mod 写法示范集合。
 
 本仓库**不提供**可直接使用的完整 mod，只提供可参考、可复制的插件工程与文档。自行组装见 [插件开发指南](docs/PLUGIN_GUIDE.md)。
@@ -37,7 +39,6 @@
 | 文档 | 内容 |
 | --- | --- |
 | [PLUGIN_GUIDE.md](docs/PLUGIN_GUIDE.md) | **主文档**。插件工程配置、取址模型（符号名 + AOB 兜底）、Hook / Patch、Lua 扩展、asmjit 生成 detour、排查表、**§5.9 函数序言校验的适用范围** |
-| [DX12_UNLOCKMODELLIMIT_ANALYSIS.md](docs/DX12_UNLOCKMODELLIMIT_ANALYSIS.md) | UnlockModelLimit 从 DX11 移植到 DX12 的差异分析（IDA 实机取证） |
 | [template/](docs/template/) | mod 目录模板：`.modinfo`、Data SQL、UI XML/Lua |
 
 ---
