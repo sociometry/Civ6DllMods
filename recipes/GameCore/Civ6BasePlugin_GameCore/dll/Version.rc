@@ -4,7 +4,10 @@
 // 改版本只改下面这一行。
 #pragma code_page(65001)
 
-VS_VERSION_INFO VERSIONINFO
+// 资源名必须是数字 ID 1：Win32 的 GetFileVersionInfoSize/GetFileVersionInfo 只按
+// MAKEINTRESOURCE(1) 查找 RT_VERSION。写成 `VS_VERSION_INFO` 会变成字符串名，
+// 资源确实在，但所有版本 API 都读不到（Loader 的插件版本门禁于是把它判成"没有版本"）。
+1 VERSIONINFO
  FILEVERSION 1,0,0,0
 BEGIN
 END

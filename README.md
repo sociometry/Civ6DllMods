@@ -61,7 +61,7 @@
 > **必须带版本资源。** 每个插件工程放一个 `Version.rc`，内容就三行（本仓库各 recipe 里已有，照抄即可）：
 >
 > ```rc
-> VS_VERSION_INFO VERSIONINFO
+> 1 VERSIONINFO
 >  FILEVERSION 1,0,0,0
 > BEGIN
 > END
@@ -70,6 +70,11 @@
 > 并在 `.vcxproj` 里加 `<ResourceCompile Include="Version.rc" />`。
 > 改版本只改 `FILEVERSION` 这一行。Loader 扫描时**读不到版本的 DLL 一律不加载**；
 > 多个 Mod 带同名插件时只加载**版本最高**的那份。详见 [插件开发指南 §2.2](docs/PLUGIN_GUIDE.md)。
+>
+> ⚠️ **第一列必须是数字 `1`，不能写 `VS_VERSION_INFO`。** RC 会把裸标识符当作**字符串资源名**
+> （`VS_VERSION_INFO` 在 `verrsrc.h` 里确实是 1，但只有 `#include` 了才会被展开）。资源照样编进去，
+> 可 `GetFileVersionInfo*` 只按 ID 1 查找，于是版本读出来是 0、插件被拒载；资源管理器属性、
+> `sigcheck`、PowerShell 的 `VersionInfo` 也都看不到它。
 
 `HookAPI.h` 需要与运行时版本配套 —— 从 Civ6DllLoader 发行包复制进各 `recipes/*/*/dll/`。
 

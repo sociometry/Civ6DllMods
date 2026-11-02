@@ -61,13 +61,18 @@ Common project requirements: `x64`, C++20, `/utf-8` (the repository convention i
 > **A version resource is mandatory.** Put a `Version.rc` in every plugin project with just these three lines (the recipes in this repo already have one — copy it):
 >
 > ```rc
-> VS_VERSION_INFO VERSIONINFO
+> 1 VERSIONINFO
 >  FILEVERSION 1,0,0,0
 > BEGIN
 > END
 > ```
 >
 > and add `<ResourceCompile Include="Version.rc" />` to the `.vcxproj`.
+>
+> ⚠️ **The first column must be the numeric `1`, never `VS_VERSION_INFO`.** RC treats a bare identifier as a
+> **string resource name** (`VS_VERSION_INFO` really is 1 in `verrsrc.h`, but only an `#include` expands it). The
+> resource still compiles in, but `GetFileVersionInfo*` only looks up ID 1, so the version reads as 0 and the plugin
+> is rejected; Explorer's file properties, `sigcheck` and PowerShell's `VersionInfo` cannot see it either.
 > To bump the version, change only the `FILEVERSION` line. The loader **refuses to load any DLL whose version it cannot read**;
 > when several mods ship a plugin with the same name, only the **highest version** is loaded. See [plugin guide §2.2](docs/PLUGIN_GUIDE.en.md).
 

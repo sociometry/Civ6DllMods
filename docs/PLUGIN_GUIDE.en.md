@@ -99,13 +99,29 @@ Add a `.rc` file to the plugin project (you can copy the content below directly)
 ```
 
 ```rc
-VS_VERSION_INFO VERSIONINFO
+1 VERSIONINFO
  FILEVERSION 1,0,0,0
 BEGIN
 END
 ```
 
 That is all three lines. **The whole file contains only one version number; to change the version, change only the `FILEVERSION` line.**
+
+#### The first column must be `1`, never `VS_VERSION_INFO`
+
+The first column of a `.rc` statement is a **resource name or numeric ID**, not a C identifier: a token starting
+with a digit becomes a numeric ID, and **any bare identifier becomes a string resource name** (exactly like
+`IDB_BITMAP1 BITMAP`). So `VS_VERSION_INFO VERSIONINFO` compiles to a resource named `"VS_VERSION_INFO"` —
+the resource is legal, but `GetFileVersionInfoSize/GetFileVersionInfo` only look up `RT_VERSION` through
+`MAKEINTRESOURCE(1)`, return 0, and the Loader rejects the plugin as version-less.
+
+`VS_VERSION_INFO` really is `#define`d to `1` in `verrsrc.h`, but that is the **root block key inside the
+VS_VERSIONINFO structure**, and it only expands if the `.rc` `#include`s the header. Our template includes
+nothing, so the token stays literal — all three plugins in this repo hit that, showing up as
+`Rejected plugin (no VERSIONINFO file version resource)` in the log and no version in the file properties.
+
+The Loader has a fallback now (it enumerates `RT_VERSION` under any name when the API returns 0), but **do not
+rely on it**: Explorer's file properties, `sigcheck` and PowerShell's `VersionInfo` only read ID 1.
 
 #### How the Loader uses it
 
@@ -241,7 +257,8 @@ Key points:
 - **Runtime library**: statically linking the C/C++ runtime (`Multi-threaded /MT`) is recommended, to avoid the target machine lacking the VC runtime DLLs.
 - **Header dependency**: the project only needs to include `HookAPI.h` (self-contained, no dependency on other headers).
 - **Version resource (required)**: the project needs a `Version.rc`, and
-  `<ResourceCompile Include="Version.rc" />` must be added to the `.vcxproj`. **DLLs without a `VERSIONINFO` file version will not be loaded**,
+  `<ResourceCompile Include="Version.rc" />` must be added to the `.vcxproj`. Note that the first column of
+  the `.rc` must be the numeric `1`, not `VS_VERSION_INFO` — see §2.2. **DLLs without a `VERSIONINFO` file version will not be loaded**,
   and same-named plugins are also ranked by this version number. See §2.2 for the template and rules.
 - **Mandatory preprocessor macro definitions (important!)**:
   Under the project properties "C/C++ -> Preprocessor -> Preprocessor Definitions", you **must** explicitly declare one of the following two macros (choose one):
@@ -1289,7 +1306,8 @@ Use them to locate the problem:
 **A: Check the two gates first.**
 1. **Directory**: the Loader strictly scans only `Plugins/Global/*.dll` and `Plugins/GameCore/*.dll`. DLLs lying directly in the `Plugins/` root are not recognized.
 2. **Version resource**: the DLL must carry a `VERSIONINFO` file version (see §2.2). If it does not, the log will contain
-   `Rejected plugin (no VERSIONINFO file version resource)`.
+   `Rejected plugin (no VERSIONINFO file version resource)`. It may also be a naming mistake (the first column of
+   the `.rc` says `VS_VERSION_INFO` instead of `1`) — the resource is there, but no version API can see it.
 
 Also confirm the mod itself is enabled — the Loader only looks for plugins among the enabled mods recorded in `Mods.sqlite`.
 

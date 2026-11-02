@@ -99,13 +99,28 @@ MyAwesomeMod/
 ```
 
 ```rc
-VS_VERSION_INFO VERSIONINFO
+1 VERSIONINFO
  FILEVERSION 1,0,0,0
 BEGIN
 END
 ```
 
 就这三行。**整个文件只有一个版本号，改版本只改 `FILEVERSION` 那一行。**
+
+#### 第一列必须是 `1`，不能写 `VS_VERSION_INFO`
+
+`.rc` 的第一列是**资源名或数字 ID**，不是 C 标识符：以数字开头按数值 ID 处理，否则**裸标识符一律
+当作字符串资源名**（和 `IDB_BITMAP1 BITMAP` 一个道理）。所以 `VS_VERSION_INFO VERSIONINFO` 编出来的
+资源名是字符串 `"VS_VERSION_INFO"`——资源本身合法，但 `GetFileVersionInfoSize/GetFileVersionInfo`
+只按 `MAKEINTRESOURCE(1)` 查 `RT_VERSION`，一律返回 0，Loader 于是把它判成"没有版本"直接丢弃。
+
+`VS_VERSION_INFO` 在 `verrsrc.h` 里确实被 `#define` 成 `1`，但那是 **VS_VERSIONINFO 结构体内部的
+根块 key**，而且只有 `.rc` 里 `#include` 过对应头文件时才会被预处理器展开。我们的模板不 `#include`
+任何东西，于是它就原样变成了字符串名——本仓库三个插件都这么中过招，表现为日志里
+`Rejected plugin (no VERSIONINFO file version resource)`，而文件属性里也看不到任何版本信息。
+
+Loader 侧后来加了兜底（API 返回 0 时枚举任意资源名的 `RT_VERSION`），但**别依赖它**：
+资源管理器"属性→详细信息"、`sigcheck`、PowerShell 的 `VersionInfo` 都只认 ID 1，写错了就查不到版本。
 
 #### Loader 怎么用它
 
@@ -242,7 +257,8 @@ extern "C" __declspec(dllexport) int OnLoad(HookContext* ctx) {
 - **头文件依赖**：工程中只需包含 `HookAPI.h`（自包含，不依赖其它头文件）。
 - **版本资源（必需）**：工程里要有一个 `Version.rc`，并在 `.vcxproj` 中加
   `<ResourceCompile Include="Version.rc" />`。**没有 `VERSIONINFO` 文件版本的 DLL 不会被加载**，
-  同名插件之间也按这个版本号择优。模板与规则见 §2.2。
+  同名插件之间也按这个版本号择优。注意 `.rc` 第一列必须写数字 `1` 而不是 `VS_VERSION_INFO`——
+  模板与规则见 §2.2。
 - **强制预处理宏定义（重要！）**：
   在工程属性「C/C++ -> 预处理器 -> 预处理器定义」中，**必须**显式声明以下两个宏之一（二选一）：
   - Global 插件添加：`CIV6_PLUGIN_GLOBAL`
@@ -1290,7 +1306,8 @@ UiInject: context 已加载 (FrontEndUI_MyMod)
 **A：先查两个门禁。**
 1. **目录**：Loader 严格只扫描 `Plugins/Global/*.dll` 和 `Plugins/GameCore/*.dll`。直接散落在 `Plugins/` 根目录下的 DLL 不认。
 2. **版本资源**：DLL 必须带 `VERSIONINFO` 文件版本（见 §2.2）。没有的话日志里会有
-   `Rejected plugin (no VERSIONINFO file version resource)`。
+   `Rejected plugin (no VERSIONINFO file version resource)`。也可能是资源名写错了（`.rc` 第一列
+   写了 `VS_VERSION_INFO` 而不是 `1`）——这种情况资源其实在，但所有版本 API 都读不到。
 
 另外确认 Mod 本身已启用——Loader 只从 `Mods.sqlite` 记录的已启用 Mod 里找插件。
 
